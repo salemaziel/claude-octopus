@@ -414,8 +414,8 @@ check_ux_dependencies() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CLAUDE CODE VERSION DETECTION (v7.12.0, updated v8.34.0)
-# Detects Claude Code v2.1.12+ through v2.1.69+ features.
+# CLAUDE CODE VERSION DETECTION (v7.12.0, updated v8.48.0)
+# Detects Claude Code v2.1.12+ through v2.1.72+ features.
 #
 # Flag usage patterns:
 #   - GATED: Flag is checked in if-conditionals to enable/disable behavior
@@ -496,6 +496,14 @@ SUPPORTS_RENAME_WHILE_PROCESSING=false # v8.40: Claude Code v2.1.70+ (/rename wo
 SUPPORTS_NATIVE_LOOP=false            # v8.40: Claude Code v2.1.71+ (/loop command + cron scheduling tools)
 SUPPORTS_RUNTIME_DEBUG=false          # v8.40: Claude Code v2.1.71+ (/debug toggle mid-session)
 SUPPORTS_FAST_BRIDGE_RECONNECT=false  # v8.40: Claude Code v2.1.71+ (bridge reconnects in seconds, not 10min)
+SUPPORTS_EXIT_WORKTREE=false           # v8.48: Claude Code v2.1.72+ (ExitWorktree tool to leave worktree sessions)
+SUPPORTS_AGENT_MODEL_OVERRIDE=false    # v8.48: Claude Code v2.1.72+ (Agent tool model parameter restored)
+SUPPORTS_EFFORT_REDESIGN=false         # v8.48: Claude Code v2.1.72+ (effort simplified: low/medium/high, max removed, ○◐● symbols)
+SUPPORTS_DISABLE_CRON_ENV=false        # v8.48: Claude Code v2.1.72+ (CLAUDE_CODE_DISABLE_CRON env var)
+SUPPORTS_HIDDEN_HTML_COMMENTS=false    # v8.48: Claude Code v2.1.72+ (HTML comments hidden in auto-injected CLAUDE.md)
+SUPPORTS_BASH_ALLOWLIST_V2=false       # v8.48: Claude Code v2.1.72+ (lsof/pgrep/tput/ss/fd/fdfind auto-allowed)
+SUPPORTS_CLEAR_PRESERVES_BG=false      # v8.48: Claude Code v2.1.72+ (/clear no longer kills background tasks)
+SUPPORTS_TEAM_MODEL_INHERIT_FIX=false  # v8.48: Claude Code v2.1.72+ (team agents inherit leader model fix)
 SUPPORTS_CONTINUATION=false           # v8.30: Agent resume/continuation for iterative retries
 OCTOPUS_BACKEND="api"              # v8.16: Detected backend (api|bedrock|vertex|foundry)
 AGENT_TEAMS_ENABLED="${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-0}"
@@ -736,6 +744,18 @@ detect_claude_code_version() {
         SUPPORTS_FAST_BRIDGE_RECONNECT=true
     fi
 
+    # Check for v2.1.72+ features (ExitWorktree, Agent model override, effort redesign, cron disable env)
+    if version_compare "$CLAUDE_CODE_VERSION" "2.1.72" ">="; then
+        SUPPORTS_EXIT_WORKTREE=true
+        SUPPORTS_AGENT_MODEL_OVERRIDE=true
+        SUPPORTS_EFFORT_REDESIGN=true
+        SUPPORTS_DISABLE_CRON_ENV=true
+        SUPPORTS_HIDDEN_HTML_COMMENTS=true
+        SUPPORTS_BASH_ALLOWLIST_V2=true
+        SUPPORTS_CLEAR_PRESERVES_BG=true
+        SUPPORTS_TEAM_MODEL_INHERIT_FIX=true
+    fi
+
     log "INFO" "Claude Code v$CLAUDE_CODE_VERSION detected"
     log "INFO" "Task Management: $SUPPORTS_TASK_MANAGEMENT | Fork Context: $SUPPORTS_FORK_CONTEXT | Agent Teams: $SUPPORTS_AGENT_TEAMS"
     log "INFO" "Persistent Memory: $SUPPORTS_PERSISTENT_MEMORY | Hook Events: $SUPPORTS_HOOK_EVENTS | Agent Type Routing: $SUPPORTS_AGENT_TYPE_ROUTING"
@@ -756,6 +776,9 @@ detect_claude_code_version() {
     log "INFO" "Statusline Worktree: $SUPPORTS_STATUSLINE_WORKTREE | Reload Plugins: $SUPPORTS_RELOAD_PLUGINS | Disable Git Instructions: $SUPPORTS_DISABLE_GIT_INSTRUCTIONS"
     log "INFO" "VSCode Plan: $SUPPORTS_VSCODE_PLAN_VIEW | Image Compaction: $SUPPORTS_IMAGE_CACHE_COMPACTION | Rename While Processing: $SUPPORTS_RENAME_WHILE_PROCESSING"
     log "INFO" "Native Loop: $SUPPORTS_NATIVE_LOOP | Runtime Debug: $SUPPORTS_RUNTIME_DEBUG | Fast Bridge: $SUPPORTS_FAST_BRIDGE_RECONNECT"
+    log "INFO" "Exit Worktree: $SUPPORTS_EXIT_WORKTREE | Agent Model Override: $SUPPORTS_AGENT_MODEL_OVERRIDE | Effort Redesign: $SUPPORTS_EFFORT_REDESIGN"
+    log "INFO" "Disable Cron Env: $SUPPORTS_DISABLE_CRON_ENV | Hidden HTML Comments: $SUPPORTS_HIDDEN_HTML_COMMENTS | Bash Allowlist V2: $SUPPORTS_BASH_ALLOWLIST_V2"
+    log "INFO" "Clear Preserves BG: $SUPPORTS_CLEAR_PRESERVES_BG | Team Model Inherit Fix: $SUPPORTS_TEAM_MODEL_INHERIT_FIX"
 
     # v8.29.0: Context window control
     OCTOPUS_CONTEXT_WINDOW="${OCTOPUS_CONTEXT_WINDOW:-auto}"
@@ -11037,7 +11060,18 @@ ${earned_skills_ctx}"
             log "DEBUG" "Effort level: $effort_level (phase=${phase:-unknown})"
             # v8.40.0: Display effort level in agent spawn output when supported
             if [[ "$SUPPORTS_EFFORT_CALLOUT" == "true" ]]; then
-                log "USER" "  Effort: $effort_level"
+                # v8.48.0: Use v2.1.72 effort symbols when available
+                local effort_symbol=""
+                if [[ "$SUPPORTS_EFFORT_REDESIGN" == "true" ]]; then
+                    case "$effort_level" in
+                        low) effort_symbol="○" ;;
+                        medium) effort_symbol="◐" ;;
+                        high) effort_symbol="●" ;;
+                    esac
+                    log "USER" "  Effort: ${effort_symbol} ${effort_level}"
+                else
+                    log "USER" "  Effort: $effort_level"
+                fi
             fi
         fi
     fi
@@ -11098,10 +11132,12 @@ ${earned_skills_ctx}"
                 --arg prompt "$enhanced_prompt" \
                 --arg result_file "$result_file" \
                 --arg effort "${effort_level:-medium}" \
+                --arg model_override "$SUPPORTS_AGENT_MODEL_OVERRIDE" \
                 '{agent_type: $agent_type, task_id: $task_id, role: $role,
                   phase: $phase, model: $model, prompt: $prompt,
                   result_file: $result_file, dispatch_method: "agent_teams",
                   effort: $effort,
+                  model_override_supported: ($model_override == "true"),
                   agent_id: "", dispatched_at: now | todate}' \
                 > "$agent_instruction_file" 2>/dev/null
         fi
@@ -12211,6 +12247,12 @@ validate_agent_type() {
 
 parallel_execute() {
     local tasks_file="${1:-$TASKS_FILE}"
+
+    # v8.48.0: Disable cron during parallel execution to prevent interference
+    if [[ "$SUPPORTS_DISABLE_CRON_ENV" == "true" ]]; then
+        export CLAUDE_CODE_DISABLE_CRON=1
+        log DEBUG "Cron jobs disabled for parallel execution duration"
+    fi
 
     if [[ ! -f "$tasks_file" ]]; then
         log ERROR "Tasks file not found: $tasks_file"
@@ -16406,6 +16448,12 @@ embrace_full_workflow() {
 
     log INFO "Starting complete Double Diamond workflow"
 
+    # v8.48.0: Disable cron during long multi-phase workflows to prevent interference
+    if [[ "$SUPPORTS_DISABLE_CRON_ENV" == "true" ]]; then
+        export CLAUDE_CODE_DISABLE_CRON=1
+        log DEBUG "Cron jobs disabled for embrace workflow duration"
+    fi
+
     # v8.19.0: Cleanup expired checkpoints
     cleanup_expired_checkpoints 2>/dev/null || true
 
@@ -16584,6 +16632,7 @@ ${obs_ctx}"
         unset OCTOPUS_TASK_GROUP
         unset OCTOPUS_TOTAL_PHASES
         unset OCTOPUS_COMPLETED_PHASES
+        unset CLAUDE_CODE_DISABLE_CRON 2>/dev/null || true
         return 0
     fi
 
@@ -16764,6 +16813,7 @@ ${obs_ctx}"
     unset OCTOPUS_TASK_GROUP
     unset OCTOPUS_TOTAL_PHASES
     unset OCTOPUS_COMPLETED_PHASES
+    unset CLAUDE_CODE_DISABLE_CRON 2>/dev/null || true
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
