@@ -444,6 +444,108 @@ fi
 
 echo ""
 
+# ─── Test Group 12: CC Pre-Prompt Alignment (v8.49.0) ────────────────────
+
+echo "Test Group 12: CC Pre-Prompt Alignment"
+echo "----------------------------------------"
+
+# Verify detect_project_quality_commands function exists
+if grep -q '^detect_project_quality_commands()' "$ORCHESTRATE"; then
+    pass "detect_project_quality_commands() function defined"
+else
+    fail "detect_project_quality_commands() function missing"
+fi
+
+# Verify it detects package.json, Cargo.toml, go.mod, pyproject.toml
+for config in package.json Cargo.toml go.mod pyproject.toml Makefile; do
+    if grep -A 40 'detect_project_quality_commands()' "$ORCHESTRATE" | grep -q "$config"; then
+        pass "Quality detection covers $config"
+    else
+        fail "Quality detection missing $config"
+    fi
+done
+
+# Verify run_project_quality_checks exists
+if grep -q '^run_project_quality_checks()' "$ORCHESTRATE"; then
+    pass "run_project_quality_checks() function defined"
+else
+    fail "run_project_quality_checks() function missing"
+fi
+
+# Verify cleanup_old_results exists
+if grep -q '^cleanup_old_results()' "$ORCHESTRATE"; then
+    pass "cleanup_old_results() function defined"
+else
+    fail "cleanup_old_results() function missing"
+fi
+
+# Verify cleanup_old_results uses configurable retention
+if grep -A 10 'cleanup_old_results()' "$ORCHESTRATE" | grep -q 'OCTOPUS_RESULT_RETENTION_HOURS'; then
+    pass "cleanup_old_results() uses configurable retention"
+else
+    fail "cleanup_old_results() missing configurable retention"
+fi
+
+# Verify cleanup_old_results preserves synthesis files
+if grep -A 20 'cleanup_old_results()' "$ORCHESTRATE" | grep -q 'probe-synthesis.*continue'; then
+    pass "cleanup_old_results() preserves synthesis files"
+else
+    fail "cleanup_old_results() may delete synthesis files"
+fi
+
+# Verify cleanup_old_results wired into embrace_full_workflow
+if grep -A 20 'embrace_full_workflow()' "$ORCHESTRATE" | grep -q 'cleanup_old_results'; then
+    pass "embrace_full_workflow() calls cleanup_old_results"
+else
+    fail "embrace_full_workflow() not calling cleanup_old_results"
+fi
+
+# Verify compact banner mode support
+if grep -q 'OCTOPUS_COMPACT_BANNERS' "$ORCHESTRATE"; then
+    pass "OCTOPUS_COMPACT_BANNERS env var supported"
+else
+    fail "OCTOPUS_COMPACT_BANNERS not found"
+fi
+
+# Verify format_workflow_banner function
+if grep -q '^format_workflow_banner()' "$ORCHESTRATE"; then
+    pass "format_workflow_banner() function defined"
+else
+    fail "format_workflow_banner() function missing"
+fi
+
+# Verify lint/typecheck checklist in flow-develop.md
+DEVELOP_SKILL="${SCRIPT_DIR}/../.claude/skills/flow-develop.md"
+if grep -q 'Lint/typecheck commands run' "$DEVELOP_SKILL"; then
+    pass "flow-develop.md includes lint/typecheck in checklist"
+else
+    fail "flow-develop.md missing lint/typecheck checklist item"
+fi
+
+# Verify commenting conventions directive in flow-develop.md
+if grep -q 'commenting conventions' "$DEVELOP_SKILL"; then
+    pass "flow-develop.md includes commenting conventions directive"
+else
+    fail "flow-develop.md missing commenting conventions"
+fi
+
+# Verify suggest-to-CLAUDE.md pattern in flow-develop.md
+if grep -q 'suggest adding them' "$DEVELOP_SKILL" || grep -q 'documented in CLAUDE.md' "$DEVELOP_SKILL"; then
+    pass "flow-develop.md suggests writing commands to CLAUDE.md"
+else
+    fail "flow-develop.md missing CLAUDE.md suggestion pattern"
+fi
+
+# Verify lint/typecheck in flow-deliver.md
+DELIVER_SKILL="${SCRIPT_DIR}/../.claude/skills/flow-deliver.md"
+if grep -q 'lint/typecheck' "$DELIVER_SKILL"; then
+    pass "flow-deliver.md includes lint/typecheck quality step"
+else
+    fail "flow-deliver.md missing lint/typecheck quality step"
+fi
+
+echo ""
+
 # ─── Summary ──────────────────────────────────────────────────────────────
 
 echo "==========================================="

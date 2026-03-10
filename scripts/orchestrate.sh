@@ -6670,6 +6670,148 @@ cleanup_cache() {
     [[ $cleaned -gt 0 ]] && log "INFO" "Cleaned $cleaned expired cache entries"
 }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# RESULT FILE CLEANUP (v8.49.0)
+# Age-based cleanup of per-agent result files after synthesis.
+# Keeps synthesis files; removes ephemeral per-agent outputs older than retention.
+# Config: OCTOPUS_RESULT_RETENTION_HOURS (default: 24)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+cleanup_old_results() {
+    [[ "$DRY_RUN" == "true" ]] && return 0
+    [[ ! -d "$RESULTS_DIR" ]] && return 0
+
+    local retention_hours="${OCTOPUS_RESULT_RETENTION_HOURS:-24}"
+    local retention_mins=$((retention_hours * 60))
+    local cleaned=0
+
+    # Clean per-agent result files (not synthesis files)
+    while IFS= read -r -d '' file; do
+        local basename
+        basename=$(basename "$file")
+        # Keep synthesis, consensus, validation, delivery files
+        case "$basename" in
+            probe-synthesis-*|grasp-consensus-*|tangle-validation-*|delivery-*) continue ;;
+            .session-id|.created-at) continue ;;
+        esac
+        rm -f "$file"
+        ((cleaned++)) || true
+    done < <(find "$RESULTS_DIR" -name "*.md" -mmin "+$retention_mins" -print0 2>/dev/null)
+
+    # Clean marker files
+    find "$RESULTS_DIR" -name "*.marker" -mmin "+$retention_mins" -delete 2>/dev/null || true
+
+    [[ $cleaned -gt 0 ]] && log "INFO" "Cleaned $cleaned expired result files (retention: ${retention_hours}h)"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROJECT QUALITY COMMAND DETECTION (v8.49.0)
+# Auto-detects lint, typecheck, and test commands from project config files.
+# Aligns with CC mandate: "MUST run lint and typecheck after completing a task."
+# ═══════════════════════════════════════════════════════════════════════════════
+
+detect_project_quality_commands() {
+    local project_dir="${1:-.}"
+    local -a commands=()
+
+    # Node.js / package.json
+    if [[ -f "$project_dir/package.json" ]]; then
+        local scripts
+        scripts=$(jq -r '.scripts // {} | keys[]' "$project_dir/package.json" 2>/dev/null)
+        for script in lint typecheck type-check tsc check; do
+            if echo "$scripts" | grep -qw "$script"; then
+                commands+=("npm run $script")
+            fi
+        done
+    fi
+
+    # Python / pyproject.toml / setup.cfg
+    if [[ -f "$project_dir/pyproject.toml" ]] || [[ -f "$project_dir/setup.cfg" ]]; then
+        command -v ruff &>/dev/null && commands+=("ruff check $project_dir")
+        command -v mypy &>/dev/null && commands+=("mypy $project_dir")
+    fi
+
+    # Rust / Cargo.toml
+    if [[ -f "$project_dir/Cargo.toml" ]]; then
+        commands+=("cargo clippy --quiet" "cargo test --no-run --quiet")
+    fi
+
+    # Go / go.mod
+    if [[ -f "$project_dir/go.mod" ]]; then
+        commands+=("go vet ./...")
+    fi
+
+    # Makefile with lint target
+    if [[ -f "$project_dir/Makefile" ]]; then
+        if grep -q '^lint:' "$project_dir/Makefile" 2>/dev/null; then
+            commands+=("make lint")
+        fi
+    fi
+
+    # Output as newline-separated list
+    printf '%s\n' "${commands[@]}"
+}
+
+# Run detected quality commands, return pass/fail summary
+# Usage: run_project_quality_checks [project_dir]
+run_project_quality_checks() {
+    local project_dir="${1:-.}"
+    local commands
+    commands=$(detect_project_quality_commands "$project_dir")
+
+    [[ -z "$commands" ]] && { echo "No quality commands detected"; return 0; }
+
+    local passed=0 failed=0 total=0
+    local -a failures=()
+
+    while IFS= read -r cmd; do
+        [[ -z "$cmd" ]] && continue
+        ((total++))
+        if eval "$cmd" &>/dev/null; then
+            ((passed++))
+        else
+            ((failed++))
+            failures+=("$cmd")
+        fi
+    done <<< "$commands"
+
+    echo "Quality checks: $passed/$total passed"
+    if [[ $failed -gt 0 ]]; then
+        echo "Failed:"
+        printf '  - %s\n' "${failures[@]}"
+        return 1
+    fi
+    return 0
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# COMPACT BANNER MODE (v8.49.0)
+# Condenses workflow banners when OCTOPUS_COMPACT_BANNERS=true.
+# Full banners (default): 8-12 lines with provider details, cost estimates.
+# Compact banners: 2-3 lines with essential info only.
+# ═══════════════════════════════════════════════════════════════════════════════
+OCTOPUS_COMPACT_BANNERS="${OCTOPUS_COMPACT_BANNERS:-false}"
+
+format_workflow_banner() {
+    local workflow="$1"
+    local description="$2"
+    local phase_emoji="${3:-🐙}"
+
+    if [[ "$OCTOPUS_COMPACT_BANNERS" == "true" ]]; then
+        # Compact: 2 lines
+        local providers=""
+        command -v codex &>/dev/null && providers+="🔴"
+        command -v gemini &>/dev/null && providers+="🟡"
+        [[ -n "${PERPLEXITY_API_KEY:-}" ]] && providers+="🟣"
+        providers+="🔵"
+        echo "🐙 ${workflow} — ${description} | ${providers}"
+    else
+        # Full: standard verbose banner (existing behavior, unchanged)
+        echo "🐙 **CLAUDE OCTOPUS ACTIVATED** - ${workflow}"
+        echo "${phase_emoji} ${description}"
+    fi
+}
+
 # v7.19.0 P2.4: Progressive synthesis - start synthesis as results become available
 progressive_synthesis_monitor() {
     local task_group="$1"
@@ -16853,6 +16995,9 @@ embrace_full_workflow() {
     echo ""
 
     log INFO "Starting complete Double Diamond workflow"
+
+    # v8.49.0: Clean up expired results from prior runs
+    cleanup_old_results
 
     # v8.5: Show compact cost estimate in banner
     show_cost_estimate "embrace" "${#prompt}"
