@@ -1,3 +1,13 @@
+## [8.56.1] - 2026-03-13
+
+### Fixed
+
+- Path traversal validation in `loadCommands` and `loadSkills` — resolved file paths are now checked to stay within the expected directory before reading (#150).
+- Path traversal validation in `TailwindExtractor` — `findTailwindConfig` validates paths stay within project root, `loadConfig` rejects paths with `..` segments (#149).
+- Path traversal validation in `TokenExtractionPipeline` — constructor now validates `outputDir` resolves within project root before writing output files (#148).
+
+---
+
 ## [8.56.0] - 2026-03-13
 
 ### Added
