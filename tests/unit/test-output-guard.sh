@@ -45,7 +45,8 @@ fi
 
 # ── guard_output wired into aggregate_results ───────────────────────────────
 
-if grep -A200 'aggregate_results()' "$ORCHESTRATE" | head -120 | grep -q 'guard_output' 2>/dev/null; then
+# Use grep -c to avoid SIGPIPE with set -eo pipefail (known gotcha)
+if grep -c 'guard_output' <(grep -A200 'aggregate_results()' "$ORCHESTRATE" | head -200) >/dev/null 2>&1; then
     pass "guard_output wired into aggregate_results()"
 else
     fail "guard_output wired into aggregate_results()" "not found in function body"
@@ -53,7 +54,7 @@ fi
 
 # ── guard_output wired into synthesize_probe_results ────────────────────────
 
-if grep -A150 'synthesize_probe_results()' "$ORCHESTRATE" | head -130 | grep -q 'guard_output' 2>/dev/null; then
+if grep -c 'guard_output' <(grep -A150 'synthesize_probe_results()' "$ORCHESTRATE" | head -200) >/dev/null 2>&1; then
     pass "guard_output wired into synthesize_probe_results()"
 else
     fail "guard_output wired into synthesize_probe_results()" "not found in function body"
