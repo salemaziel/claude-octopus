@@ -101,6 +101,9 @@ source "${SCRIPT_DIR}/lib/context.sh" 2>/dev/null || true
 # Perplexity & OpenRouter API execution (v9.7.5 extraction)
 source "${SCRIPT_DIR}/lib/perplexity.sh" 2>/dev/null || true
 
+# Cost tracking & usage reporting (v9.7.5 extraction)
+source "${SCRIPT_DIR}/lib/cost.sh" 2>/dev/null || true
+
 # Usage help & shell completion functions (v9.7.x extraction)
 source "${SCRIPT_DIR}/lib/usage-help.sh" 2>/dev/null || true
 
