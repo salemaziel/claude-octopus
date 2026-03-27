@@ -8,7 +8,13 @@ description: "\"Start a creative thought partner brainstorming session\""
 
 ### MANDATORY COMPLIANCE — DO NOT SKIP
 
-**When the user invokes `/octo:brainstorm`, you MUST ask the mode selection question below BEFORE starting the session.** Do NOT default to Solo mode. Do NOT skip the question. The user must choose.
+**When the user invokes `/octo:brainstorm`, you MUST ask the mode selection question below BEFORE starting the session. You are PROHIBITED from:**
+- Defaulting to Solo mode without asking
+- Skipping the mode selection question
+- Brainstorming solo and calling it Team mode
+- Skipping the provider check or visual banner in Team mode
+
+**The user chose `/octo:brainstorm` for structured ideation. Follow the workflow.**
 
 ---
 
