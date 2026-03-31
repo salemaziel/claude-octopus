@@ -1,5 +1,6 @@
 ---
 name: octopus-research
+effort: high
 aliases:
   - research
   - deep-research

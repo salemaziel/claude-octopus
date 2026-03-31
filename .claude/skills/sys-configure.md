@@ -1,5 +1,6 @@
 ---
 name: sys-configure
+effort: low
 user-invocable: true
 aliases:
   - config

@@ -1,5 +1,9 @@
 ---
 name: skill-coverage-audit
+paths:
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/coverage/**"
 aliases:
   - coverage-audit
   - test-coverage

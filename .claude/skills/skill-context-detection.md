@@ -1,5 +1,6 @@
 ---
 name: skill-context-detection
+effort: low
 description: "Auto-detect work context (Dev vs Knowledge) — use to tailor workflows based on current task type"
 ---
 

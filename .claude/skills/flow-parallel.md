@@ -1,5 +1,6 @@
 ---
 name: flow-parallel
+effort: high
 aliases:
   - parallel
   - batch

@@ -1,5 +1,6 @@
 ---
 name: skill-verification-gate
+effort: low
 description: "Evidence before claims — run verification commands before declaring work complete, fixed, or passing"
 trigger: |
   AUTOMATICALLY ACTIVATE when:

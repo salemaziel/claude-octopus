@@ -1,5 +1,10 @@
 ---
 name: skill-tdd
+paths:
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "**/tests/**"
+  - "**/__tests__/**"
 aliases:
   - tdd
   - test-driven-development

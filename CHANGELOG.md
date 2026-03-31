@@ -1,12 +1,23 @@
-## [9.17.1] - 2026-03-31
+## [9.18.0] - 2026-03-31
+
+### Added
+
+- **Claude Code v2.1.84-87 sync** — 9 new `SUPPORTS_*` flags: skill effort frontmatter (v2.1.80+), rate limit statusline (v2.1.80+), TaskCreated hook (v2.1.84+), skill paths globs (v2.1.84+), plugin userConfig (v2.1.84+), conditional hook `if` field (v2.1.85+), PreToolUse AskUserQuestion answering (v2.1.85+), skill description 250 char cap (v2.1.86+), TaskOutput deprecation (v2.1.83+).
+- **Skill `effort:` frontmatter** — 10 research/analysis skills set to `effort: high`, 7 quick/diagnostic skills set to `effort: low`. Saves tokens on light tasks, allocates more thinking on deep work. CC v2.1.80+ reads this automatically.
+- **Skill `paths:` frontmatter** — 4 skills scoped to relevant file globs (TDD → test files, doc-sync → markdown, security-framing → env/auth files, coverage-audit → test/coverage dirs). CC v2.1.84+ auto-activates matching skills.
+- **TaskCreated discipline hook** — When discipline mode is on, fires brainstorm gate reminder when tasks are created. Prevents jumping into implementation without a plan.
+- **Marketplace sync counts from `.claude/commands/`** — Source of truth for command count (was counting Codex `commands/` dir which lagged).
 
 ### Fixed
 
 - **Windows/Git Bash compatibility** — add `--skip-git-repo-check` to all Codex CLI dispatch commands; fix pipe chain stdout loss with MINGW-aware file-based capture fallback; add `WORKSPACE_DIR` fallback to smoke test and tier cache paths (#235)
-- **Model resolver cross-provider routing** — routing phases targeting a different provider (e.g. `gemini:default` for a codex resolution) are now skipped instead of contaminating the model selection (#235)
-- **Scope drift skill enforcement** — add MANDATORY COMPLIANCE block to `skill-scope-drift` (#236)
-- **README counts** — update command count 47→48, skill count 50→51 (#236)
-- **OpenClaw registry sync** — `skill-verify` → `skill-verification-gate`, add `discipline` command, bump count to 99 (#236)
+- **Model resolver cross-provider routing** — routing phases targeting a different provider now skipped instead of contaminating model selection (#235)
+- **Scope drift skill enforcement** — add MANDATORY COMPLIANCE block (#236)
+- **Test: "Which Tentacle?" heading renamed** — matches "Pick a Command by Goal" heading.
+- **test-codex-compat.sh** — skill count pattern updated to range.
+- **OpenClaw registry sync** — `skill-verify` → `skill-verification-gate`, add `discipline` command.
+
+---
 
 ## [9.17.0] - 2026-03-31
 

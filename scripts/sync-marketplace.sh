@@ -17,7 +17,7 @@ CHECK_ONLY=false
 # Count shipped plugin artifacts.
 # Source of truth is .claude/skills/*.md (excludes .tmpl templates)
 SKILL_COUNT=$(find "$ROOT_DIR/.claude/skills" -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
-COMMAND_COUNT=$(find "$ROOT_DIR/commands" -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
+COMMAND_COUNT=$(find "$ROOT_DIR/.claude/commands" -maxdepth 1 -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
 PERSONA_COUNT=$(find "$ROOT_DIR/agents/personas" -name "*.md" -type f 2>/dev/null | wc -l | tr -d ' ')
 
 # Get current version from plugin.json (source of truth)

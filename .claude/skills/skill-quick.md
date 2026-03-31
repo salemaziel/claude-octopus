@@ -1,5 +1,6 @@
 ---
 name: octopus-quick
+effort: low
 description: Quick execution for ad-hoc tasks without full workflow overhead — use for small, self-contained requests
 aliases:
   - quick

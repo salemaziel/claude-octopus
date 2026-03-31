@@ -1,5 +1,6 @@
 ---
 name: flow-discover
+effort: high
 aliases:
   - discover
   - discover-workflow
@@ -142,19 +143,15 @@ bash "${CLAUDE_PLUGIN_ROOT:-$(dirname "$(dirname "$(dirname "$0")")")}/scripts/h
 
 **Use the ACTUAL results below. PROHIBITED: Showing only "🔵 Claude: Available ✓" without listing all providers.**
 
-**If `OCTOPUS_COMPACT_BANNERS=true` is set, use this compact format instead:**
-```
-🐙 Discover — [Brief description] | 🔴🟡🔵
-```
 
-**Otherwise, display the full banner BEFORE orchestrate.sh execution:**
+**Display this banner BEFORE orchestrate.sh execution:**
 
 **For Dev Context:**
 ```
 🐙 **CLAUDE OCTOPUS ACTIVATED** - Multi-provider research mode
 🔍 [Dev] Discover Phase: [Brief description of technical research]
 
-Providers:
+Provider Availability:
 🔴 Codex CLI: ${codex_status}
 🟡 Gemini CLI: ${gemini_status}
 🟣 Perplexity: ${perplexity_status}

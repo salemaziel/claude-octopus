@@ -1,5 +1,6 @@
 ---
 name: skill-debate
+effort: high
 user-invocable: true
 aliases:
   - debate

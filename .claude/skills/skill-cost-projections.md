@@ -1,5 +1,6 @@
 ---
 name: skill-cost-projections
+effort: low
 aliases:
   - cost-projections
   - cost-forecast

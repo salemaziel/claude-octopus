@@ -308,6 +308,32 @@ detect_claude_code_version() {
         SUPPORTS_MANAGED_SETTINGS_D=true
         SUPPORTS_ENV_SCRUB=true
         SUPPORTS_AGENT_INITIAL_PROMPT=true
+        SUPPORTS_TASKOUTPUT_DEPRECATED=true
+    fi
+
+    # Check for v2.1.80+ features (effort frontmatter, rate_limits statusline field)
+    # Note: v2.1.80 predates v2.1.83 but was not tracked until v9.18.0 sync
+    if version_compare "$CLAUDE_CODE_VERSION" "2.1.80" ">="; then
+        SUPPORTS_SKILL_EFFORT=true
+        SUPPORTS_RATE_LIMIT_STATUSLINE=true
+    fi
+
+    # Check for v2.1.84+ features (TaskCreated hook, paths: frontmatter, userConfig)
+    if version_compare "$CLAUDE_CODE_VERSION" "2.1.84" ">="; then
+        SUPPORTS_TASK_CREATED_HOOK=true
+        SUPPORTS_SKILL_PATHS=true
+        SUPPORTS_USER_CONFIG=true
+    fi
+
+    # Check for v2.1.85+ features (conditional if on hooks, PreToolUse answering AskUserQuestion)
+    if version_compare "$CLAUDE_CODE_VERSION" "2.1.85" ">="; then
+        SUPPORTS_HOOK_CONDITIONAL_IF=true
+        SUPPORTS_HOOK_ASK_ANSWER=true
+    fi
+
+    # Check for v2.1.86+ features (skill description 250 char cap)
+    if version_compare "$CLAUDE_CODE_VERSION" "2.1.86" ">="; then
+        SUPPORTS_SKILL_DESC_250=true
     fi
 
     log "INFO" "Claude Code v$CLAUDE_CODE_VERSION detected"

@@ -1,5 +1,6 @@
 ---
 name: skill-doctor
+effort: low
 description: "Environment diagnostics — check providers, auth, config, hooks, scheduler, and more"
 trigger: |
   AUTOMATICALLY ACTIVATE when user asks about:

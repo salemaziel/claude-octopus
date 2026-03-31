@@ -375,5 +375,16 @@
         }
       ]
     }
+  ],
+  "TaskCreated": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/discipline-task-gate.sh",
+          "timeout": 3
+        }
+      ]
+    }
   ]
 }

@@ -1756,8 +1756,8 @@ else
 fi
 
 # --- README Updates ---
-echo -n "  README has 'Which Tentacle?' section... "
-if grep -q "Which Tentacle" "$SCRIPT_DIR/../README.md"; then
+echo -n "  README has command-by-goal section... "
+if grep -q "Pick a Command by Goal\|Which Tentacle" "$SCRIPT_DIR/../README.md"; then
     echo -e "${GREEN}PASS${NC}"
     ((PASS++))
 else

@@ -1,5 +1,8 @@
 ---
 name: skill-doc-sync
+paths:
+  - "**/*.md"
+  - "**/docs/**"
 version: 1.0.0
 aliases: [doc-sync, sync-docs, document-release]
 description: "Post-ship doc sync across project markdown. Use when: sync docs, update docs, document changes, release notes."

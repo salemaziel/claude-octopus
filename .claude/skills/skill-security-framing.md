@@ -1,5 +1,10 @@
 ---
 name: skill-security-framing
+paths:
+  - "**/*.env*"
+  - "**/auth*"
+  - "**/security*"
+  - "**/*secret*"
 aliases:
   - security-framing
   - content-sanitization

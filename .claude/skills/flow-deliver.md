@@ -1,5 +1,6 @@
 ---
 name: flow-deliver
+effort: high
 aliases:
   - deliver
   - deliver-workflow
@@ -277,10 +278,9 @@ validation_summary=$(head -30 "$VALIDATION_FILE" | grep -A 2 "## Summary\|Pass\|
 
 # Update final metrics (completion of full workflow)
 "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" update_metrics "phases_completed" "1"
-# Track actual providers used (dynamic — not hardcoded)
-for _provider in $(bash "${CLAUDE_PLUGIN_ROOT}/scripts/helpers/check-providers.sh" | grep ":available" | cut -d: -f1) claude; do
-  "${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" update_metrics "provider" "$_provider"
-done
+"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" update_metrics "provider" "codex"
+"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" update_metrics "provider" "gemini"
+"${CLAUDE_PLUGIN_ROOT}/scripts/state-manager.sh" update_metrics "provider" "claude"
 
 # Display final state summary
 echo ""

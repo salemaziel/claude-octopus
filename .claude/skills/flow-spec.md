@@ -1,5 +1,6 @@
 ---
 name: flow-spec
+effort: high
 aliases:
   - spec
   - nlspec
