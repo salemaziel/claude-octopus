@@ -67,10 +67,36 @@ Restart Codex. Skills appear automatically — invoke with `$skill-doctor`, `$sk
 <details>
 <summary>Install for Cursor IDE</summary>
 
-Install from the Cursor plugin marketplace, or clone manually:
+Cursor uses Octopus as an **MCP server** (not a plugin — Cursor doesn't have Claude Code's plugin system). You get MCP tools like `octopus_discover`, `octopus_review`, etc. instead of `/octo:*` slash commands.
+
 ```bash
+# 1. Clone the repo
 git clone --depth 1 https://github.com/nyldn/claude-octopus.git ~/.cursor/claude-octopus
+
+# 2. Install MCP server dependencies
+cd ~/.cursor/claude-octopus/mcp-server && npm install
+
+# 3. Configure Cursor — add to ~/.cursor/mcp.json (global) or .cursor/mcp.json (per-project):
 ```
+
+```json
+{
+  "mcpServers": {
+    "claude-octopus": {
+      "command": "npx",
+      "args": ["tsx", "${userHome}/.cursor/claude-octopus/mcp-server/src/index.ts"],
+      "env": {
+        "OPENAI_API_KEY": "${env:OPENAI_API_KEY}",
+        "GEMINI_API_KEY": "${env:GEMINI_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+Restart Cursor. Tools appear in Cursor's AI chat — invoke by asking e.g. "use octopus_discover to research X".
+
+See [docs/IDE-INTEGRATION.md](docs/IDE-INTEGRATION.md) for the full guide including `ide-attach.sh` auto-setup.
 </details>
 
 <details>
