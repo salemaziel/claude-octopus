@@ -1,3 +1,20 @@
+## [9.19.2] - 2026-04-04
+
+### Changed
+
+- **`/octo:doctor` interactive remediation** — Doctor now uses AskUserQuestion to offer fixes for every fixable issue: RTK install (brew/cargo), RTK hook config, missing providers, expired auth, missing deps. Batches multiple issues into multiSelect prompts.
+- **Token optimization report** — Doctor includes RTK status, hook config, compressor analytics, and octo-compress availability at the end of every run.
+
+### Removed
+
+- **`/octo:optimize` command** — Folded entirely into `/octo:doctor` which now handles both diagnostics and interactive remediation. 48 commands total (was 49).
+
+### Fixed
+
+- **Private VPS details** — Removed from `docs/DEVELOPER.md` (E2E infrastructure references).
+
+---
+
 ## [9.19.1] - 2026-04-04
 
 ### Fixed
