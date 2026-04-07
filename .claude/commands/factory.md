@@ -71,6 +71,15 @@ Estimated cost: $0.50-2.00 (~20-30 agent calls)
 **PROHIBITED: Displaying only Claude without listing all providers.**
 If both external providers are missing, warn but proceed (Claude-only mode is supported).
 
+### EXECUTION MECHANISM — NON-NEGOTIABLE
+
+**You MUST execute this command by calling `orchestrate.sh` as documented below. You are PROHIBITED from:**
+- ❌ Doing the work yourself using only Claude-native tools (Agent, Read, Grep, Write)
+- ❌ Using a single Claude subagent instead of multi-provider dispatch via orchestrate.sh
+- ❌ Skipping orchestrate.sh because "I can do this faster directly"
+
+**Multi-LLM orchestration is the purpose of this command.** If you execute using only Claude, you've violated the command's contract.
+
 ### Step 3: Validate Spec
 
 Read the spec file and verify it contains:

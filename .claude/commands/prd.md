@@ -7,6 +7,15 @@ arguments:
     required: true
 ---
 
+### EXECUTION MECHANISM — NON-NEGOTIABLE
+
+**You MUST execute this command by calling `orchestrate.sh` as documented below. You are PROHIBITED from:**
+- ❌ Doing the work yourself using only Claude-native tools (Agent, Read, Grep, Write)
+- ❌ Using a single Claude subagent instead of multi-provider dispatch via orchestrate.sh
+- ❌ Skipping orchestrate.sh because "I can do this faster directly"
+
+**Multi-LLM orchestration is the purpose of this command.** If you execute using only Claude, you've violated the command's contract.
+
 ## STOP - DO NOT INVOKE /skill OR Skill() AGAIN
 
 This command is already executing. The feature to document is: **$ARGUMENTS.feature**

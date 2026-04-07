@@ -14,6 +14,15 @@ aliases:
 
 **When the user explicitly invokes `/octo:staged-review`, you MUST execute the structured workflow below.** You are PROHIBITED from doing the task directly, skipping the review phases, or deciding the task is "too simple" for this workflow. The user chose this command deliberately — respect that choice.
 
+### EXECUTION MECHANISM — NON-NEGOTIABLE
+
+**You MUST dispatch work to external providers (Codex, Gemini, etc.) for this command. You are PROHIBITED from:**
+- ❌ Executing the entire task using only Claude-native tools
+- ❌ Using a single Agent subagent instead of multi-provider dispatch
+- ❌ Skipping provider dispatch because "I can handle this alone"
+
+**Multi-LLM orchestration is the purpose of this command.** Single-model execution defeats its purpose.
+
 ---
 
 🐙 **CLAUDE OCTOPUS ACTIVATED** — Two-Stage Review Pipeline

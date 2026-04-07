@@ -15,6 +15,15 @@ description: "Expert multi-LLM code review with inline PR comments — competes 
 
 **The user chose `/octo:review` over a regular code review deliberately.** They want multi-provider perspectives (Codex + Gemini + Claude), not a single-model review. If you catch yourself thinking "a focused audit would be more effective" — STOP. That is the exact rationalization this instruction prohibits.
 
+### EXECUTION MECHANISM — NON-NEGOTIABLE
+
+**You MUST execute this command by calling `orchestrate.sh` as documented below. You are PROHIBITED from:**
+- ❌ Doing the work yourself using only Claude-native tools (Agent, Read, Grep, Write)
+- ❌ Using a single Claude subagent instead of multi-provider dispatch via orchestrate.sh
+- ❌ Skipping orchestrate.sh because "I can do this faster directly"
+
+**Multi-LLM orchestration is the purpose of this command.** If you execute using only Claude, you've violated the command's contract.
+
 ---
 
 🐙 **CLAUDE OCTOPUS ACTIVATED** — Multi-LLM Code Review

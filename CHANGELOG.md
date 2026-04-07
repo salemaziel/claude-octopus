@@ -1,3 +1,20 @@
+## [9.20.0] - 2026-04-06
+
+### Added
+
+- **EXECUTION MECHANISM enforcement** — All 13 multi-LLM workflow commands now have explicit `NON-NEGOTIABLE` blocks prohibiting agents from substituting Claude-native tools for orchestrate.sh dispatch. Covers embrace, discover, define, develop, deliver, multi, review, security, debate, research, factory, staged-review, prd.
+- **Embrace chains skill invocations** — `/octo:embrace` now invokes `/octo:discover` → `/octo:define` → `/octo:develop` → `/octo:deliver` as sequential Skill calls. Each phase loads fresh enforcement instructions, surviving context compaction in long sessions.
+- **Post-compaction enforcement re-injection** — `post-compact.sh` now detects active multi-LLM workflows and re-injects execution enforcement text after compaction drops the original skill instructions.
+- **Workflow verification hook** — New `workflow-verification.sh` (SessionEnd) detects when a multi-LLM workflow ran but produced no result files, warning that orchestrate.sh dispatch may not have executed.
+- **Interactive `/octo:model-config` wizard** (v4.0) — No-args invocation now shows a dashboard + AskUserQuestion menu: provider defaults, phase routing, debate/multi-LLM participants, consensus threshold, cost mode, reset. CLI-style direct arguments still work.
+- **Never-dismiss guardrails** — `/octo:setup` and `/octo:model-config` can no longer be silently dismissed for returning users. Both always show interactive UI.
+- **New test suites** — `test-execution-mechanism.sh` (32 assertions), `test-interactive-commands.sh` (10 assertions) guard against enforcement regressions.
+
+### Fixed
+
+- **`/octo:embrace` not dispatching to external providers** — Agent displayed workflow banner but used only Claude-native tools (Agent, WebFetch) instead of calling orchestrate.sh. Root cause: missing explicit prohibition + context compaction dropping skill instructions in long sessions.
+- **`/octo:setup` dismissing returning users** — Agent said "you're already set up" instead of showing interactive menu. Fixed with mandatory first-output-line and never-dismiss guardrails.
+
 ## [9.19.3] - 2026-04-04
 
 ### Added

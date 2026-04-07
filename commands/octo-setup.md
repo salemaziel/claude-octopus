@@ -1,10 +1,84 @@
 ---
-description: "Check Claude Octopus setup status and get configuration instructions"
+description: "Interactive setup wizard — install providers, configure auth, RTK, token optimization"
 ---
 
 # Claude Octopus Setup
 
-This command checks your current setup and provides instructions for any missing dependencies.
+**Your first output line MUST be:** `🐙 Octopus Setup`
+
+**CRITICAL: This command MUST always run its interactive flow when invoked.** Never silently dismiss the user. Never say "you're already set up" without showing the dashboard and asking what they want to do. Even if everything is configured, the user invoked this command for a reason — show them their status and offer choices.
+
+## STEP 1: Detect Current State
+
+Run a SINGLE comprehensive check:
+
+```bash
+echo "=== Provider Detection ==="
+printf "codex:%s\n" "$(command -v codex >/dev/null 2>&1 && echo installed || echo missing)"
+printf "codex_auth:%s\n" "$(codex --version >/dev/null 2>&1 && echo ok || echo none)"
+printf "gemini:%s\n" "$(command -v gemini >/dev/null 2>&1 && echo installed || echo missing)"
+printf "perplexity:%s\n" "$([ -n "${PERPLEXITY_API_KEY:-}" ] && echo configured || echo missing)"
+printf "copilot:%s\n" "$(command -v copilot >/dev/null 2>&1 && echo installed || echo missing)"
+printf "qwen:%s\n" "$(command -v qwen >/dev/null 2>&1 && echo installed || echo missing)"
+printf "ollama:%s\n" "$(command -v ollama >/dev/null 2>&1 && curl -sf http://localhost:11434/api/tags >/dev/null 2>&1 && echo running || command -v ollama >/dev/null 2>&1 && echo installed || echo missing)"
+printf "opencode:%s\n" "$(command -v opencode >/dev/null 2>&1 && echo installed || echo missing)"
+echo "=== Token Optimization ==="
+printf "rtk:%s\n" "$(command -v rtk >/dev/null 2>&1 && echo "installed $(rtk --version 2>&1 | head -1)" || echo missing)"
+printf "rtk_hook:%s\n" "$(grep -q 'rtk' "${HOME}/.claude/settings.json" 2>/dev/null && echo active || echo missing)"
+echo "=== System ==="
+printf "node:%s\n" "$(node --version 2>/dev/null || echo missing)"
+printf "jq:%s\n" "$(command -v jq >/dev/null 2>&1 && echo installed || echo missing)"
+printf "os:%s\n" "$(uname -s)"
+```
+
+## STEP 2: Display Status Dashboard
+
+Always show this dashboard — never skip it:
+
+```
+🐙 Octopus Setup
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Providers:
+  🔵 Claude:        Available ✓
+  🔴 Codex CLI:     [Installed ✓ / Missing ✗]
+  🟡 Gemini CLI:    [Installed ✓ / Missing ✗]
+  🟣 Perplexity:    [Configured ✓ / Not set ✗]
+  🟢 Copilot CLI:   [Installed ✓ / Not installed]
+  🟠 Qwen CLI:      [Installed ✓ / Not installed]
+  🟤 OpenCode:      [Installed ✓ / Not installed]
+  ⚫ Ollama:        [Running ✓ / Installed / Not installed]
+
+Token Optimization:
+  RTK:              [Installed + Hook active ✓ / Installed ✓ / Missing ✗]
+```
+
+## STEP 3: Interactive Menu (ALWAYS show this)
+
+**Always present this menu, whether it's a first run or a returning user:**
+
+```
+AskUserQuestion({
+  questions: [{
+    question: "What would you like to do?",
+    header: "Setup",
+    multiSelect: false,
+    options: [
+      {label: "Add or configure a provider", description: "Install Codex, Gemini, Perplexity, Copilot, Qwen, or OpenCode"},
+      {label: "Configure models", description: "Set which models are used for each workflow phase → launches /octo:model-config"},
+      {label: "Set up token optimization (RTK)", description: "Install RTK for 60-90% token savings on bash output"},
+      {label: "Change work mode", description: "Switch between Dev mode and Knowledge Work mode"},
+      {label: "Fine-tune preferences", description: "Banner verbosity, telemetry, cost mode"},
+      {label: "Troubleshoot an issue", description: "Diagnose a problem → launches /octo:doctor"}
+    ]
+  }]
+})
+```
+
+Then route to the appropriate section below.
+
+**If providers are NOT yet configured or this is a first run**, also proceed with the full setup flow below after showing the menu.
+
+---
 
 ## Dependency Check
 
@@ -213,6 +287,75 @@ claude auth status
 ```
 
 This confirms your Claude session is active and authenticated. Octopus uses this for reliable provider detection when available.
+
+## Fine-tune Your Experience (Optional)
+
+**After confirming at least one provider is set up**, offer the user a chance to configure plugin preferences. This section uses interactive questions for settings the plugin can write directly — skip this section for users who declined or are in a hurry.
+
+Ask only if the user appears to be in a setup flow (not troubleshooting):
+
+```
+AskUserQuestion({
+  questions: [{
+    question: "Want to fine-tune your Claude Octopus experience? (takes ~30 seconds)",
+    header: "Fine-tune",
+    multiSelect: false,
+    options: [
+      {label: "Yes, let's configure it", description: "Set work mode, verbosity, and telemetry preferences"},
+      {label: "Skip for now", description: "Use defaults — you can run /octo:setup anytime to change these"}
+    ]
+  }]
+})
+```
+
+**If yes**, run this preferences questionnaire:
+
+```
+AskUserQuestion({
+  questions: [
+    {
+      question: "What's your primary use case?",
+      header: "Work Mode",
+      multiSelect: false,
+      options: [
+        {label: "Software development", description: "Dev mode — optimized for building features, debugging, code review"},
+        {label: "Research & analysis", description: "Knowledge Work mode — optimized for research, reports, strategy work"}
+      ]
+    },
+    {
+      question: "How much detail do you want in workflow banners?",
+      header: "Verbosity",
+      multiSelect: false,
+      options: [
+        {label: "Full banners (default)", description: "Show which providers are running and their roles — good for new users"},
+        {label: "Compact banners", description: "Single-line indicators — better for experienced users who know the system"}
+      ]
+    },
+    {
+      question: "Telemetry — help improve Claude Octopus?",
+      header: "Telemetry",
+      multiSelect: false,
+      options: [
+        {label: "Yes, share anonymous usage data", description: "Helps prioritize features and catch bugs (default)"},
+        {label: "No, opt out", description: "Set OCTOPUS_TELEMETRY_OPT_OUT=1 — no data sent"}
+      ]
+    }
+  ]
+})
+```
+
+**After receiving answers, apply settings:**
+
+- Work mode "Software development" → run `/octo:dev` or note that Dev mode is the default
+- Work mode "Research & analysis" → run `/octo:km on`
+- Compact banners selected → write `OCTOPUS_COMPACT_BANNERS=true` to shell profile and inform user to restart terminal (or add to `~/.zshrc`)
+- Telemetry opt-out selected → write `OCTOPUS_TELEMETRY_OPT_OUT=1` to shell profile and inform user
+
+**Note:** For shell profile writes, show the exact command for the user to run — do not run it automatically:
+```bash
+# Example: add to ~/.zshrc
+echo 'export OCTOPUS_COMPACT_BANNERS=true' >> ~/.zshrc
+```
 
 ## Ready to Use
 

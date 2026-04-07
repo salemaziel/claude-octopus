@@ -13,6 +13,16 @@ description: Deep research with multi-source synthesis and comprehensive analysi
 
 **When the user explicitly invokes `/octo:research`, you MUST execute the structured research workflow below.** You are PROHIBITED from answering directly, skipping the multi-provider research, or deciding the topic is "too simple" for deep research. The user chose this command deliberately — respect that choice.
 
+### EXECUTION MECHANISM — NON-NEGOTIABLE
+
+**You MUST execute this command by invoking the corresponding skill via the Skill tool. You are PROHIBITED from:**
+- ❌ Using the Agent tool to research/implement yourself instead of invoking the skill
+- ❌ Using WebFetch/Read/Grep as a substitute for multi-provider dispatch
+- ❌ Skipping `orchestrate.sh` calls because "I can do this faster directly"
+- ❌ Implementing the task using only Claude-native tools (Agent, Write, Edit)
+
+**Multi-LLM orchestration is the purpose of this command.** If you execute using only Claude, you've violated the command's contract.
+
 ---
 
 When the user invokes this command (e.g., `/octo:research <arguments>`):

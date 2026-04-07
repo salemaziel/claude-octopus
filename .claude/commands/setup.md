@@ -14,6 +14,8 @@ Interactive setup wizard. Detects what's installed, offers to install what's mis
 
 **This command auto-runs on first install** (via SessionStart hook). It also runs when users invoke `/octo:setup` manually.
 
+**CRITICAL: This command MUST always run its interactive flow when invoked.** Never silently dismiss the user. Never say "you're already set up" without showing the dashboard and offering choices via AskUserQuestion. Even if everything is configured, the user invoked this command for a reason — show them their status and ask what they want to do.
+
 ## STEP 1: Detect Current State
 
 Run a SINGLE comprehensive check:
@@ -60,9 +62,39 @@ Token Optimization:
   octo-compress:    [Available ✓ / Not in PATH]
 ```
 
-## STEP 3: Interactive Setup (AskUserQuestion)
+## STEP 3: Interactive Menu (ALWAYS show — even for returning users)
 
-Based on detection, offer to fix what's missing. Batch related items:
+**Always present this menu after the dashboard, regardless of current setup state:**
+
+```javascript
+AskUserQuestion({
+  questions: [{
+    question: "What would you like to do?",
+    header: "Setup",
+    multiSelect: false,
+    options: [
+      {label: "Add or configure a provider", description: "Install Codex, Gemini, Perplexity, Copilot, Qwen, or OpenCode"},
+      {label: "Configure models", description: "Set which models are used for each workflow phase → launches /octo:model-config"},
+      {label: "Set up token optimization (RTK)", description: "Install RTK for 60-90% token savings on bash output"},
+      {label: "Change work mode", description: "Switch between Dev mode and Knowledge Work mode"},
+      {label: "Fine-tune preferences", description: "Banner verbosity, telemetry, cost mode"},
+      {label: "Troubleshoot an issue", description: "Diagnose a problem → launches /octo:doctor"},
+      {label: "Done — everything looks good", description: "Exit setup"}
+    ]
+  }]
+})
+```
+
+Route based on selection:
+- **Add or configure a provider** → Continue to the provider install flow below
+- **Configure models** → Invoke `/octo:model-config` (the interactive model config wizard)
+- **Set up RTK** → Jump to the RTK section below
+- **Change work mode** → Jump to the Work Mode section (STEP 4)
+- **Fine-tune preferences** → Jump to the Fine-tune section (STEP 5)
+- **Troubleshoot** → Suggest `/octo:doctor`
+- **Done** → Show "Run /octo:setup anytime to change these settings" and exit
+
+## STEP 3a: Provider Install (if selected above, or if core providers are missing on first run)
 
 **If core providers are missing (Codex/Gemini):**
 

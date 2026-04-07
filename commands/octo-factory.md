@@ -14,6 +14,15 @@ description: "\"Dark Factory Mode - Spec-in, software-out autonomous pipeline\""
 
 **The user chose Dark Factory deliberately.** They want spec-in, software-out with full multi-AI orchestration, adversarial review, and quality gates. If you catch yourself thinking "I can just implement this directly" — STOP. That is the exact rationalization this instruction prohibits.
 
+### EXECUTION MECHANISM — NON-NEGOTIABLE
+
+**You MUST execute this command by calling `orchestrate.sh` as documented below. You are PROHIBITED from:**
+- ❌ Doing the work yourself using only Claude-native tools (Agent, Read, Grep, Write)
+- ❌ Using a single Claude subagent instead of multi-provider dispatch via orchestrate.sh
+- ❌ Skipping orchestrate.sh because "I can do this faster directly"
+
+**Multi-LLM orchestration is the purpose of this command.** If you execute using only Claude, you've violated the command's contract.
+
 ---
 
 ## INSTRUCTIONS FOR CLAUDE

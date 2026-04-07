@@ -12,6 +12,15 @@ description: "Security audit with OWASP compliance and vulnerability detection"
 
 **When the user explicitly invokes `/octo:security`, you MUST execute the structured security audit workflow below.** You are PROHIBITED from doing a quick check directly, skipping the clarifying questions, or deciding the task is "too simple" for this workflow. The user chose this command deliberately — respect that choice.
 
+### EXECUTION MECHANISM — NON-NEGOTIABLE
+
+**You MUST dispatch work to external providers (Codex, Gemini, etc.) for this command. You are PROHIBITED from:**
+- ❌ Executing the entire task using only Claude-native tools
+- ❌ Using a single Agent subagent instead of multi-provider dispatch
+- ❌ Skipping provider dispatch because "I can handle this alone"
+
+**Multi-LLM orchestration is the purpose of this command.** Single-model execution defeats its purpose.
+
 ---
 
 When the user invokes this command (e.g., `/octo:security <arguments>`):
