@@ -1028,7 +1028,8 @@ format_workflow_banner() {
 
     # Determine provider roles based on workflow type
     local codex_role gemini_role claude_role
-    local workflow_lower="${workflow,,} ${description,,}"
+    local workflow_lower
+    workflow_lower=$(printf '%s %s' "$workflow" "$description" | tr '[:upper:]' '[:lower:]')
     if [[ "$workflow_lower" =~ (research|discover|probe|explore) ]]; then
         codex_role="Technical implementation analysis"
         gemini_role="Ecosystem and community research"
