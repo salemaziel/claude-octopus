@@ -1029,19 +1029,19 @@ format_workflow_banner() {
     # Determine provider roles based on workflow type
     local codex_role gemini_role claude_role
     local workflow_lower="${workflow,,} ${description,,}"
-    if [[ "$workflow_lower" =~ research|discover|probe|explore ]]; then
+    if [[ "$workflow_lower" =~ (research|discover|probe|explore) ]]; then
         codex_role="Technical implementation analysis"
         gemini_role="Ecosystem and community research"
         claude_role="Strategic synthesis"
-    elif [[ "$workflow_lower" =~ define|grasp|spec|scope ]]; then
+    elif [[ "$workflow_lower" =~ (define|grasp|spec|scope) ]]; then
         codex_role="Problem scoping and constraints"
         gemini_role="Requirements and success criteria"
         claude_role="Consensus building"
-    elif [[ "$workflow_lower" =~ develop|build|tangle|implement ]]; then
+    elif [[ "$workflow_lower" =~ (develop|build|tangle|implement) ]]; then
         codex_role="Code generation and patterns"
         gemini_role="Alternative approaches and validation"
         claude_role="Integration and quality gates"
-    elif [[ "$workflow_lower" =~ deliver|review|ink|audit ]]; then
+    elif [[ "$workflow_lower" =~ (deliver|review|ink|audit) ]]; then
         codex_role="Code quality analysis"
         gemini_role="Security and edge cases"
         claude_role="Synthesis and recommendations"
