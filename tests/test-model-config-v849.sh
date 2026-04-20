@@ -519,7 +519,7 @@ else
 fi
 
 # Verify full banner has Providers: section
-if grep -A 70 '^format_workflow_banner()' "$_ORCH_ALL_TMP" | grep -q 'Providers:'; then
+if grep -A 80 '^format_workflow_banner()' "$_ORCH_ALL_TMP" | grep -q 'Providers:'; then
     pass "format_workflow_banner() full mode includes 'Providers:' section"
 else
     fail "format_workflow_banner() full mode missing 'Providers:' section"
@@ -533,14 +533,14 @@ else
 fi
 
 # Verify compact mode includes Copilot indicator (🟢)
-if grep -A 50 '^format_workflow_banner()' "$_ORCH_ALL_TMP" | grep -q '🟢'; then
+if grep -A 70 '^format_workflow_banner()' "$_ORCH_ALL_TMP" | grep -q '🟢'; then
     pass "format_workflow_banner() compact mode includes 🟢 Copilot indicator"
 else
     fail "format_workflow_banner() compact mode missing 🟢 Copilot indicator"
 fi
 
 # Verify compact mode includes Qwen indicator (🟤)
-if grep -A 60 '^format_workflow_banner()' "$_ORCH_ALL_TMP" | grep -q '🟤'; then
+if grep -A 70 '^format_workflow_banner()' "$_ORCH_ALL_TMP" | grep -q '🟤'; then
     pass "format_workflow_banner() compact/full mode includes 🟤 Qwen indicator"
 else
     fail "format_workflow_banner() missing 🟤 Qwen indicator"

@@ -1004,6 +1004,28 @@ format_workflow_banner() {
     local description="$2"
     local phase_emoji="${3:-🐙}"
 
+    # Local auth helpers — use dedicated is_available() functions when loaded,
+    # otherwise fall back to the same auth chain they implement.
+    _banner_copilot_ready() {
+        command -v copilot &>/dev/null || return 1
+        if declare -f copilot_is_available &>/dev/null; then
+            copilot_is_available 2>/dev/null
+        else
+            [[ -n "${COPILOT_GITHUB_TOKEN:-}" ]] || [[ -n "${GH_TOKEN:-}" ]] || \
+            [[ -n "${GITHUB_TOKEN:-}" ]] || [[ -f "${HOME}/.copilot/config.json" ]] || \
+            { command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; }
+        fi
+    }
+    _banner_qwen_ready() {
+        command -v qwen &>/dev/null || return 1
+        if declare -f qwen_is_available &>/dev/null; then
+            qwen_is_available 2>/dev/null
+        else
+            [[ -f "${HOME}/.qwen/oauth_creds.json" ]] || [[ -f "${HOME}/.qwen/config.json" ]] || \
+            [[ -n "${QWEN_API_KEY:-}" ]]
+        fi
+    }
+
     # Determine provider roles based on workflow type
     local codex_role gemini_role claude_role
     local workflow_lower="${workflow,,} ${description,,}"
@@ -1040,22 +1062,8 @@ format_workflow_banner() {
         command -v gemini &>/dev/null && providers+="🟡"
         [[ -n "${PERPLEXITY_API_KEY:-}" ]] && providers+="🟣"
         providers+="🔵"
-        # Copilot (🟢) — included with GitHub subscription
-        if command -v copilot &>/dev/null; then
-            if { declare -f copilot_is_available &>/dev/null && copilot_is_available 2>/dev/null; } || \
-               [[ -n "${COPILOT_GITHUB_TOKEN:-}" ]] || [[ -n "${GH_TOKEN:-}" ]] || \
-               [[ -n "${GITHUB_TOKEN:-}" ]] || [[ -f "${HOME}/.copilot/config.json" ]]; then
-                providers+="🟢"
-            fi
-        fi
-        # Qwen (🟤) — free tier
-        if command -v qwen &>/dev/null; then
-            if { declare -f qwen_is_available &>/dev/null && qwen_is_available 2>/dev/null; } || \
-               [[ -f "${HOME}/.qwen/oauth_creds.json" ]] || [[ -f "${HOME}/.qwen/config.json" ]] || \
-               [[ -n "${QWEN_API_KEY:-}" ]]; then
-                providers+="🟤"
-            fi
-        fi
+        _banner_copilot_ready 2>/dev/null && providers+="🟢" || true
+        _banner_qwen_ready 2>/dev/null && providers+="🟤" || true
         # OpenCode (🟤) — multi-provider router
         command -v opencode &>/dev/null && providers+="🟤" || true
         echo "🐙 ${workflow} — ${description} | ${providers}"
@@ -1084,18 +1092,14 @@ format_workflow_banner() {
         echo "🔵 Claude - ${claude_role}"
         # Optional providers — only shown when installed
         if command -v copilot &>/dev/null; then
-            if { declare -f copilot_is_available &>/dev/null && copilot_is_available 2>/dev/null; } || \
-               [[ -n "${COPILOT_GITHUB_TOKEN:-}" ]] || [[ -n "${GH_TOKEN:-}" ]] || \
-               [[ -n "${GITHUB_TOKEN:-}" ]] || [[ -f "${HOME}/.copilot/config.json" ]]; then
+            if _banner_copilot_ready 2>/dev/null; then
                 echo "🟢 Copilot - GitHub-aware code analysis (subscription)"
             else
                 echo "🟢 Copilot (skipping — authentication required, run: copilot login)"
             fi
         fi
         if command -v qwen &>/dev/null; then
-            if { declare -f qwen_is_available &>/dev/null && qwen_is_available 2>/dev/null; } || \
-               [[ -f "${HOME}/.qwen/oauth_creds.json" ]] || [[ -f "${HOME}/.qwen/config.json" ]] || \
-               [[ -n "${QWEN_API_KEY:-}" ]]; then
+            if _banner_qwen_ready 2>/dev/null; then
                 echo "🟤 Qwen - Alternative AI perspective (free tier)"
             else
                 echo "🟤 Qwen (skipping — authentication required, run: qwen)"
