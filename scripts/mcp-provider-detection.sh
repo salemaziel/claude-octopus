@@ -48,6 +48,25 @@ detect_provider_mcp() {
                 return 0
             fi
             ;;
+        copilot)
+            # Copilot — fall back to CLI auth check (no MCP representation)
+            if command -v copilot &>/dev/null && \
+               { [[ -n "${COPILOT_GITHUB_TOKEN:-}" ]] || [[ -n "${GH_TOKEN:-}" ]] || \
+                 [[ -n "${GITHUB_TOKEN:-}" ]] || [[ -f "${HOME}/.copilot/config.json" ]] || \
+                 { command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; }; }; then
+                echo "available"
+                return 0
+            fi
+            ;;
+        qwen)
+            # Qwen — fall back to CLI auth check (no MCP representation)
+            if command -v qwen &>/dev/null && \
+               { [[ -f "${HOME}/.qwen/oauth_creds.json" ]] || [[ -f "${HOME}/.qwen/config.json" ]] || \
+                 [[ -n "${QWEN_API_KEY:-}" ]]; }; then
+                echo "available"
+                return 0
+            fi
+            ;;
     esac
 
     echo "unavailable"
@@ -82,6 +101,25 @@ detect_provider_cli() {
             # Claude is always available in Claude Code
             echo "available"
             return 0
+            ;;
+        copilot)
+            # Copilot — CLI presence + auth
+            if command -v copilot &>/dev/null && \
+               { [[ -n "${COPILOT_GITHUB_TOKEN:-}" ]] || [[ -n "${GH_TOKEN:-}" ]] || \
+                 [[ -n "${GITHUB_TOKEN:-}" ]] || [[ -f "${HOME}/.copilot/config.json" ]] || \
+                 { command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; }; }; then
+                echo "available"
+                return 0
+            fi
+            ;;
+        qwen)
+            # Qwen — CLI presence + auth
+            if command -v qwen &>/dev/null && \
+               { [[ -f "${HOME}/.qwen/oauth_creds.json" ]] || [[ -f "${HOME}/.qwen/config.json" ]] || \
+                 [[ -n "${QWEN_API_KEY:-}" ]]; }; then
+                echo "available"
+                return 0
+            fi
             ;;
     esac
 
@@ -218,6 +256,8 @@ get_provider_banner() {
 
     if [[ "$qwen_status" == "available" ]]; then
         qwen_display="${qwen_display}Available ✓ (free tier)"
+    elif command -v qwen >/dev/null 2>&1; then
+        qwen_display="${qwen_display}Auth required ✗"
     else
         qwen_display="${qwen_display}Not installed ✗"
     fi
@@ -292,7 +332,7 @@ Commands:
   check PROVIDER [METHOD]  Check if provider is available (exit code)
   has-mcp                  Check if MCP support is available
 
-Providers: codex, gemini, perplexity, claude
+Providers: codex, gemini, perplexity, claude, copilot, qwen
 
 EOF
         exit 1
