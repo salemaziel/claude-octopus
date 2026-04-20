@@ -1065,8 +1065,8 @@ format_workflow_banner() {
         providers+="🔵"
         _banner_copilot_ready 2>/dev/null && providers+="🟢" || true
         _banner_qwen_ready 2>/dev/null && providers+="🟤" || true
-        # OpenCode (🟤) — multi-provider router
-        command -v opencode &>/dev/null && providers+="🟤" || true
+        # OpenCode (⚫) — multi-provider router
+        command -v opencode &>/dev/null && providers+="⚫" || true
         echo "🐙 ${workflow} — ${description} | ${providers}"
     else
         # Full: activation header with provider listing and roles
