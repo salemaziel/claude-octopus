@@ -358,6 +358,7 @@ preflight_check() {
     fi
 
     # Check Qwen CLI (v9.10.0 — free-tier fork of Gemini CLI)
+    # Auth precedence: OAuth creds file > config.json > QWEN_API_KEY env var
     if command -v qwen &>/dev/null; then
         has_qwen=true
         log DEBUG "Qwen CLI: $(command -v qwen)"
