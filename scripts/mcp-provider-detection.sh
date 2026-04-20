@@ -210,6 +210,8 @@ get_provider_banner() {
 
     if [[ "$copilot_status" == "available" ]]; then
         copilot_display="${copilot_display}Available ✓ (subscription)"
+    elif command -v copilot >/dev/null 2>&1; then
+        copilot_display="${copilot_display}Auth required ✗"
     else
         copilot_display="${copilot_display}Not installed ✗"
     fi
