@@ -107,7 +107,7 @@ get_agent_command() {
             echo "ollama run $model"
             ;;
         qwen|qwen-research)  # v9.10.0: Qwen CLI — fork of Gemini CLI (free tier)
-            echo "env NODE_NO_WARNINGS=1 qwen -o text --approval-mode yolo"
+            echo "env NODE_NO_WARNINGS=1 qwen -o text --approval-mode yolo --no-ask-user"
             ;;
         opencode|opencode-fast|opencode-research)  # v9.11.0: OpenCode CLI — multi-provider router
             model=$(get_agent_model "$agent_type" "$phase" "$role")

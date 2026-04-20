@@ -207,7 +207,7 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
             BEGIN { in_response = 0; header_done = 0; }
             /^--------$/ { header_done = 1; next; }
             !header_done { next; }
-            /^(codex|gemini|assistant)$/ { in_response = 1; next; }
+            /^(codex|gemini|qwen|assistant)$/ { in_response = 1; next; }
             /^thinking$/ { next; }
             /^tokens used$/ { next; }
             /^[0-9,]+$/ && in_response { next; }
@@ -215,7 +215,7 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
         ' "$temp_output" >> "$result_file"
 
         # Trust marker for external CLI output
-        case "$agent_type" in codex*|gemini*|perplexity*)
+        case "$agent_type" in codex*|gemini*|qwen*|perplexity*)
             if [[ "${OCTOPUS_SECURITY_V870:-true}" == "true" ]]; then
                 sed -i.bak '1s/^/<!-- trust=untrusted provider='"$agent_type"' -->\n/' "$result_file" 2>/dev/null || true
                 rm -f "${result_file}.bak"
@@ -239,7 +239,7 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
                 BEGIN { in_response = 0; header_done = 0; }
                 /^--------$/ { header_done = 1; next; }
                 !header_done { next; }
-                /^(codex|gemini|assistant)$/ { in_response = 1; next; }
+                /^(codex|gemini|qwen|assistant)$/ { in_response = 1; next; }
                 in_response { print; }
             ' "$temp_output" >> "$result_file"
         fi
