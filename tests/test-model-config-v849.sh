@@ -518,6 +518,34 @@ else
     fail "format_workflow_banner() function missing"
 fi
 
+# Verify full banner has Providers: section
+if grep -A 80 '^format_workflow_banner()' "$_ORCH_ALL_TMP" | grep -q 'Providers:'; then
+    pass "format_workflow_banner() full mode includes 'Providers:' section"
+else
+    fail "format_workflow_banner() full mode missing 'Providers:' section"
+fi
+
+# Verify full banner shows provider roles based on workflow type
+if grep -A 50 '^format_workflow_banner()' "$_ORCH_ALL_TMP" | grep -q 'codex_role'; then
+    pass "format_workflow_banner() uses workflow-type-aware codex_role"
+else
+    fail "format_workflow_banner() missing workflow-type-aware roles"
+fi
+
+# Verify compact mode includes Copilot indicator (🟢)
+if grep -A 70 '^format_workflow_banner()' "$_ORCH_ALL_TMP" | grep -q '🟢'; then
+    pass "format_workflow_banner() compact mode includes 🟢 Copilot indicator"
+else
+    fail "format_workflow_banner() compact mode missing 🟢 Copilot indicator"
+fi
+
+# Verify compact mode includes Qwen indicator (🟤)
+if grep -A 70 '^format_workflow_banner()' "$_ORCH_ALL_TMP" | grep -q '🟤'; then
+    pass "format_workflow_banner() compact/full mode includes 🟤 Qwen indicator"
+else
+    fail "format_workflow_banner() missing 🟤 Qwen indicator"
+fi
+
 # Verify lint/typecheck checklist in flow-develop.md
 DEVELOP_SKILL="${SCRIPT_DIR}/../.claude/skills/flow-develop.md"
 if grep -q 'Lint/typecheck commands run' "$DEVELOP_SKILL"; then

@@ -334,8 +334,10 @@ preflight_check() {
     local errors=0
     local has_codex=false
     local has_gemini=false
+    local has_qwen=false
     local codex_auth=false
     local gemini_auth=false
+    local qwen_auth=false
 
     # Check Codex CLI
     if command -v codex &>/dev/null; then
@@ -355,8 +357,18 @@ preflight_check() {
         fi
     fi
 
+    # Check Qwen CLI (v9.10.0 — free-tier fork of Gemini CLI)
+    # Auth precedence: OAuth creds file > config.json > QWEN_API_KEY env var
+    if command -v qwen &>/dev/null; then
+        has_qwen=true
+        log DEBUG "Qwen CLI: $(command -v qwen)"
+        if [[ -f "$HOME/.qwen/oauth_creds.json" ]] || [[ -f "$HOME/.qwen/config.json" ]] || [[ -n "${QWEN_API_KEY:-}" ]]; then
+            qwen_auth=true
+        fi
+    fi
+
     # v7.9.1: Only need ONE provider to work
-    if [[ "$has_codex" == "false" && "$has_gemini" == "false" ]]; then
+    if [[ "$has_codex" == "false" && "$has_gemini" == "false" && "$has_qwen" == "false" ]]; then
         echo ""
         echo -e "${RED}╔═══════════════════════════════════════════════════════════════╗${NC}"
         echo -e "${RED}║  ❌ NO AI PROVIDERS FOUND                                     ║${NC}"
@@ -372,6 +384,10 @@ preflight_check() {
         echo -e "  npm install -g @google/gemini-cli"
         echo -e "  gemini       ${DIM}# OAuth recommended${NC}"
         echo ""
+        echo -e "${CYAN}Option 3: Install Qwen CLI (Alibaba — free tier)${NC}"
+        echo -e "  npm install -g @qwen-code/qwen-code"
+        echo -e "  qwen         ${DIM}# OAuth recommended${NC}"
+        echo ""
         echo -e "Run ${GREEN}/octo:setup${NC} for guided configuration."
         echo ""
         preflight_cache_write "1"
@@ -379,7 +395,7 @@ preflight_check() {
     fi
 
     # Check if at least one provider is authenticated
-    if [[ "$codex_auth" == "false" && "$gemini_auth" == "false" ]]; then
+    if [[ "$codex_auth" == "false" && "$gemini_auth" == "false" && "$qwen_auth" == "false" ]]; then
         echo ""
         echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════════╗${NC}"
         echo -e "${YELLOW}║  ⚠️  PROVIDERS FOUND BUT NOT AUTHENTICATED                    ║${NC}"
@@ -397,6 +413,12 @@ preflight_check() {
             echo -e "  ${DIM}OR export GEMINI_API_KEY=\"...\"${NC}"
             echo ""
         fi
+        if [[ "$has_qwen" == "true" ]]; then
+            echo -e "${CYAN}Qwen CLI installed but needs authentication:${NC}"
+            echo -e "  qwen         ${DIM}# OAuth (recommended)${NC}"
+            echo -e "  ${DIM}OR export QWEN_API_KEY=\"...\"${NC}"
+            echo ""
+        fi
         echo -e "Run ${GREEN}/octo:setup${NC} for guided configuration."
         echo ""
         preflight_cache_write "1"
@@ -407,6 +429,7 @@ preflight_check() {
     local available_providers=""
     [[ "$codex_auth" == "true" ]] && available_providers="${available_providers}Codex "
     [[ "$gemini_auth" == "true" ]] && available_providers="${available_providers}Gemini "
+    [[ "$qwen_auth" == "true" ]] && available_providers="${available_providers}Qwen "
     log INFO "Available providers: $available_providers"
 
     # v8.48: Codex OAuth token freshness check (P1-A)

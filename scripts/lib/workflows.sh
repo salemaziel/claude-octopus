@@ -207,7 +207,7 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
             BEGIN { in_response = 0; header_done = 0; }
             /^--------$/ { header_done = 1; next; }
             !header_done { next; }
-            /^(codex|gemini|assistant)$/ { in_response = 1; next; }
+            /^(codex|gemini|qwen|assistant)$/ { in_response = 1; next; }
             /^thinking$/ { next; }
             /^tokens used$/ { next; }
             /^[0-9,]+$/ && in_response { next; }
@@ -215,7 +215,7 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
         ' "$temp_output" >> "$result_file"
 
         # Trust marker for external CLI output
-        case "$agent_type" in codex*|gemini*|perplexity*)
+        case "$agent_type" in codex*|gemini*|qwen*|perplexity*)
             if [[ "${OCTOPUS_SECURITY_V870:-true}" == "true" ]]; then
                 sed -i.bak '1s/^/<!-- trust=untrusted provider='"$agent_type"' -->\n/' "$result_file" 2>/dev/null || true
                 rm -f "${result_file}.bak"
@@ -239,7 +239,7 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
                 BEGIN { in_response = 0; header_done = 0; }
                 /^--------$/ { header_done = 1; next; }
                 !header_done { next; }
-                /^(codex|gemini|assistant)$/ { in_response = 1; next; }
+                /^(codex|gemini|qwen|assistant)$/ { in_response = 1; next; }
                 in_response { print; }
             ' "$temp_output" >> "$result_file"
         fi
@@ -1004,18 +1004,111 @@ format_workflow_banner() {
     local description="$2"
     local phase_emoji="${3:-🐙}"
 
+    # Local auth helpers — use dedicated is_available() functions when loaded,
+    # otherwise fall back to the same auth chain they implement.
+    _banner_copilot_ready() {
+        command -v copilot &>/dev/null || return 1
+        if declare -f copilot_is_available &>/dev/null; then
+            copilot_is_available 2>/dev/null
+        else
+            [[ -n "${COPILOT_GITHUB_TOKEN:-}" ]] || [[ -n "${GH_TOKEN:-}" ]] || \
+            [[ -n "${GITHUB_TOKEN:-}" ]] || [[ -f "${HOME}/.copilot/config.json" ]] || \
+            { command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; }
+        fi
+    }
+    _banner_qwen_ready() {
+        command -v qwen &>/dev/null || return 1
+        if declare -f qwen_is_available &>/dev/null; then
+            qwen_is_available 2>/dev/null
+        else
+            [[ -f "${HOME}/.qwen/oauth_creds.json" ]] || [[ -f "${HOME}/.qwen/config.json" ]] || \
+            [[ -n "${QWEN_API_KEY:-}" ]]
+        fi
+    }
+
+    # Determine provider roles based on workflow type
+    local codex_role gemini_role claude_role
+    local workflow_lower
+    workflow_lower=$(printf '%s %s' "$workflow" "$description" | tr '[:upper:]' '[:lower:]')
+    if [[ "$workflow_lower" =~ (research|discover|probe|explore) ]]; then
+        codex_role="Technical implementation analysis"
+        gemini_role="Ecosystem and community research"
+        claude_role="Strategic synthesis"
+    elif [[ "$workflow_lower" =~ (define|grasp|spec|scope) ]]; then
+        codex_role="Problem scoping and constraints"
+        gemini_role="Requirements and success criteria"
+        claude_role="Consensus building"
+    elif [[ "$workflow_lower" =~ (develop|build|tangle|implement) ]]; then
+        codex_role="Code generation and patterns"
+        gemini_role="Alternative approaches and validation"
+        claude_role="Integration and quality gates"
+    elif [[ "$workflow_lower" =~ (deliver|review|ink|audit) ]]; then
+        codex_role="Code quality analysis"
+        gemini_role="Security and edge cases"
+        claude_role="Synthesis and recommendations"
+    elif [[ "$workflow_lower" =~ debate ]]; then
+        codex_role="Technical perspective"
+        gemini_role="Ecosystem perspective"
+        claude_role="Moderator and synthesis"
+    else
+        codex_role="Code generation and analysis"
+        gemini_role="Research and alternative perspectives"
+        claude_role="Orchestration and synthesis"
+    fi
+
     if [[ "$OCTOPUS_COMPACT_BANNERS" == "true" ]]; then
-        # Compact: 2 lines
+        # Compact: 1 line with active provider indicators
         local providers=""
         command -v codex &>/dev/null && providers+="🔴"
         command -v gemini &>/dev/null && providers+="🟡"
         [[ -n "${PERPLEXITY_API_KEY:-}" ]] && providers+="🟣"
         providers+="🔵"
+        _banner_copilot_ready 2>/dev/null && providers+="🟢" || true
+        _banner_qwen_ready 2>/dev/null && providers+="🟤" || true
+        # OpenCode (⚫) — multi-provider router
+        command -v opencode &>/dev/null && providers+="⚫" || true
         echo "🐙 ${workflow} — ${description} | ${providers}"
     else
-        # Full: standard verbose banner (existing behavior, unchanged)
+        # Full: activation header with provider listing and roles
         echo "🐙 **CLAUDE OCTOPUS ACTIVATED** - ${workflow}"
         echo "${phase_emoji} ${description}"
+        echo ""
+        echo "Providers:"
+        # Core providers — show role when available, skip notice when not
+        if command -v codex &>/dev/null; then
+            echo "🔴 Codex CLI - ${codex_role}"
+        else
+            echo "🔴 Codex CLI (skipping — not installed)"
+        fi
+        if command -v gemini &>/dev/null; then
+            echo "🟡 Gemini CLI - ${gemini_role}"
+        else
+            echo "🟡 Gemini CLI (skipping — not installed)"
+        fi
+        if [[ -n "${PERPLEXITY_API_KEY:-}" ]]; then
+            echo "🟣 Perplexity - Real-time web search"
+        else
+            echo "🟣 Perplexity (skipping — PERPLEXITY_API_KEY not set)"
+        fi
+        echo "🔵 Claude - ${claude_role}"
+        # Optional providers — only shown when installed
+        if command -v copilot &>/dev/null; then
+            if _banner_copilot_ready 2>/dev/null; then
+                echo "🟢 Copilot - GitHub-aware code analysis (subscription)"
+            else
+                echo "🟢 Copilot (skipping — authentication required, run: copilot login)"
+            fi
+        fi
+        if command -v qwen &>/dev/null; then
+            if _banner_qwen_ready 2>/dev/null; then
+                echo "🟤 Qwen - Alternative AI perspective (free tier)"
+            else
+                echo "🟤 Qwen (skipping — authentication required, run: qwen)"
+            fi
+        fi
+        if command -v opencode &>/dev/null; then
+            echo "🟤 OpenCode - Multi-provider routing"
+        fi
     fi
 }
 

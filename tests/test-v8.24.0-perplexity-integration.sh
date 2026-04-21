@@ -279,6 +279,48 @@ else
     fail "Usage text missing perplexity"
 fi
 
+# Test 5.7: detect_all_providers includes copilot (v9.9.0)
+if grep -q 'copilot_status' "$MCP_DETECT"; then
+    pass "detect_all_providers() tracks copilot_status"
+else
+    fail "detect_all_providers() missing copilot_status"
+fi
+
+# Test 5.8: JSON output includes copilot with 🟢 emoji
+if grep -q '"copilot"' "$MCP_DETECT" && grep -q '"🟢"' "$MCP_DETECT"; then
+    pass "JSON output includes copilot with 🟢 emoji"
+else
+    fail "JSON output missing copilot entry or 🟢 emoji"
+fi
+
+# Test 5.9: Banner includes copilot_display
+if grep -q 'copilot_display' "$MCP_DETECT"; then
+    pass "get_provider_banner() includes copilot_display"
+else
+    fail "get_provider_banner() missing copilot_display"
+fi
+
+# Test 5.10: detect_all_providers includes qwen (v9.10.0)
+if grep -q 'qwen_status' "$MCP_DETECT"; then
+    pass "detect_all_providers() tracks qwen_status"
+else
+    fail "detect_all_providers() missing qwen_status"
+fi
+
+# Test 5.11: JSON output includes qwen with 🟤 emoji
+if grep -q '"qwen"' "$MCP_DETECT" && grep -q '"🟤"' "$MCP_DETECT"; then
+    pass "JSON output includes qwen with 🟤 emoji"
+else
+    fail "JSON output missing qwen entry or 🟤 emoji"
+fi
+
+# Test 5.12: Banner includes qwen_display
+if grep -q 'qwen_display' "$MCP_DETECT"; then
+    pass "get_provider_banner() includes qwen_display"
+else
+    fail "get_provider_banner() missing qwen_display"
+fi
+
 echo ""
 
 # ═══════════════════════════════════════════════════════════════════════════════

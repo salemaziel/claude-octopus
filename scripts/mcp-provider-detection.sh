@@ -48,6 +48,25 @@ detect_provider_mcp() {
                 return 0
             fi
             ;;
+        copilot)
+            # Copilot — fall back to CLI auth check (no MCP representation)
+            if command -v copilot &>/dev/null && \
+               { [[ -n "${COPILOT_GITHUB_TOKEN:-}" ]] || [[ -n "${GH_TOKEN:-}" ]] || \
+                 [[ -n "${GITHUB_TOKEN:-}" ]] || [[ -f "${HOME}/.copilot/config.json" ]] || \
+                 { command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; }; }; then
+                echo "available"
+                return 0
+            fi
+            ;;
+        qwen)
+            # Qwen — fall back to CLI auth check (no MCP representation)
+            if command -v qwen &>/dev/null && \
+               { [[ -f "${HOME}/.qwen/oauth_creds.json" ]] || [[ -f "${HOME}/.qwen/config.json" ]] || \
+                 [[ -n "${QWEN_API_KEY:-}" ]]; }; then
+                echo "available"
+                return 0
+            fi
+            ;;
     esac
 
     echo "unavailable"
@@ -83,6 +102,25 @@ detect_provider_cli() {
             echo "available"
             return 0
             ;;
+        copilot)
+            # Copilot — CLI presence + auth
+            if command -v copilot &>/dev/null && \
+               { [[ -n "${COPILOT_GITHUB_TOKEN:-}" ]] || [[ -n "${GH_TOKEN:-}" ]] || \
+                 [[ -n "${GITHUB_TOKEN:-}" ]] || [[ -f "${HOME}/.copilot/config.json" ]] || \
+                 { command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; }; }; then
+                echo "available"
+                return 0
+            fi
+            ;;
+        qwen)
+            # Qwen — CLI presence + auth
+            if command -v qwen &>/dev/null && \
+               { [[ -f "${HOME}/.qwen/oauth_creds.json" ]] || [[ -f "${HOME}/.qwen/config.json" ]] || \
+                 [[ -n "${QWEN_API_KEY:-}" ]]; }; then
+                echo "available"
+                return 0
+            fi
+            ;;
     esac
 
     echo "unavailable"
@@ -93,7 +131,7 @@ detect_provider_cli() {
 detect_all_providers() {
     local use_mcp="${1:-auto}"
 
-    local codex_status gemini_status perplexity_status claude_status
+    local codex_status gemini_status perplexity_status claude_status copilot_status qwen_status
 
     # Determine detection method
     local use_mcp_method="false"
@@ -117,6 +155,25 @@ detect_all_providers() {
     fi
     claude_status="available"  # Always available
 
+    # Copilot — CLI presence + auth (v9.9.0)
+    if command -v copilot &>/dev/null && \
+       { [[ -n "${COPILOT_GITHUB_TOKEN:-}" ]] || [[ -n "${GH_TOKEN:-}" ]] || \
+         [[ -n "${GITHUB_TOKEN:-}" ]] || [[ -f "${HOME}/.copilot/config.json" ]] || \
+         { command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; }; }; then
+        copilot_status="available"
+    else
+        copilot_status="unavailable"
+    fi
+
+    # Qwen — CLI presence + auth (v9.10.0)
+    if command -v qwen &>/dev/null && \
+       { [[ -f "${HOME}/.qwen/oauth_creds.json" ]] || [[ -f "${HOME}/.qwen/config.json" ]] || \
+         [[ -n "${QWEN_API_KEY:-}" ]]; }; then
+        qwen_status="available"
+    else
+        qwen_status="unavailable"
+    fi
+
     # Output JSON
     cat <<EOF
 {
@@ -137,6 +194,14 @@ detect_all_providers() {
     "claude": {
       "status": "$claude_status",
       "emoji": "🔵"
+    },
+    "copilot": {
+      "status": "$copilot_status",
+      "emoji": "🟢"
+    },
+    "qwen": {
+      "status": "$qwen_status",
+      "emoji": "🟤"
     }
   }
 }
@@ -151,11 +216,15 @@ get_provider_banner() {
     local gemini_status=$(echo "$json_output" | jq -r '.providers.gemini.status')
     local perplexity_status=$(echo "$json_output" | jq -r '.providers.perplexity.status')
     local claude_status=$(echo "$json_output" | jq -r '.providers.claude.status')
+    local copilot_status=$(echo "$json_output" | jq -r '.providers.copilot.status // "unavailable"')
+    local qwen_status=$(echo "$json_output" | jq -r '.providers.qwen.status // "unavailable"')
 
     local codex_display="🔴 Codex CLI: "
     local gemini_display="🟡 Gemini CLI: "
     local perplexity_display="🟣 Perplexity: "
     local claude_display="🔵 Claude: "
+    local copilot_display="🟢 Copilot: "
+    local qwen_display="🟤 Qwen: "
 
     if [[ "$codex_status" == "available" ]]; then
         codex_display="${codex_display}Available ✓"
@@ -177,10 +246,28 @@ get_provider_banner() {
 
     claude_display="${claude_display}Available ✓"
 
+    if [[ "$copilot_status" == "available" ]]; then
+        copilot_display="${copilot_display}Available ✓ (subscription)"
+    elif command -v copilot >/dev/null 2>&1; then
+        copilot_display="${copilot_display}Auth required ✗"
+    else
+        copilot_display="${copilot_display}Not installed ✗"
+    fi
+
+    if [[ "$qwen_status" == "available" ]]; then
+        qwen_display="${qwen_display}Available ✓ (free tier)"
+    elif command -v qwen >/dev/null 2>&1; then
+        qwen_display="${qwen_display}Auth required ✗"
+    else
+        qwen_display="${qwen_display}Not installed ✗"
+    fi
+
     echo "$codex_display"
     echo "$gemini_display"
     echo "$perplexity_display"
     echo "$claude_display"
+    echo "$copilot_display"
+    echo "$qwen_display"
 }
 
 # Check if provider is available (exit code based)
@@ -245,7 +332,7 @@ Commands:
   check PROVIDER [METHOD]  Check if provider is available (exit code)
   has-mcp                  Check if MCP support is available
 
-Providers: codex, gemini, perplexity, claude
+Providers: codex, gemini, perplexity, claude, copilot, qwen
 
 EOF
         exit 1
