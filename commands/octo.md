@@ -12,5 +12,6 @@ When the user invokes `/octo:octo <query>`, you MUST:
 
 1. Inform the user: "Note: `/octo:octo` has been renamed to `/octo:auto`. Routing your request now."
 2. Immediately invoke: `Skill(skill: "octo:auto", args: "<full user query>")`
+3. **Fallback** — if the `octo:auto` skill is unavailable or the invocation fails: tell the user the smart router could not be reached, then handle the query directly (do not silently drop it). Suggest the user run `/octo:setup` if `octo:auto` appears to be missing.
 
-Do NOT duplicate the routing logic here — delegate entirely to `/octo:auto`.
+Do NOT duplicate the routing logic here — delegate entirely to `/octo:auto`. The fallback is a graceful-degradation safety net only, not a second routing implementation.
