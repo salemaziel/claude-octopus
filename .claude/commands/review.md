@@ -5,6 +5,10 @@ description: Enhanced multi-LLM review with inline PR comments — escalation pa
 
 # /octo:review
 
+## MANDATORY COMPLIANCE — DO NOT SKIP
+
+**When the user explicitly invokes `/octo:review`, you MUST execute the enhanced multi-provider review workflow below.** You are PROHIBITED from substituting Claude-native `/review`, direct reading, or a single-model review unless the user changes commands.
+
 ## Positioning
 
 Three review entry points coexist in Claude Code v2.1.111+ — pick the right one per context:
@@ -67,7 +71,7 @@ If `AUTONOMY_MODE` env var is `autonomous`, or session is running headlessly, or
 1. Run `git diff --cached` — if non-empty, `target=staged`
 2. Run `gh pr view --json number` — if open PR exists, set `target=<pr_number>`
 3. Otherwise `target=working-tree`
-4. Set `provenance=unknown`, `autonomy=autonomous`, `publish=ask`, `debate=auto`, `focus=["correctness","security","architecture","tdd"]`
+4. Set `provenance=unknown`, `autonomy=autonomous`, `publish=ask`, `debate=auto`, `history=auto`, `focus=["correctness","security","architecture","tdd"]`
 
 **Otherwise (supervised mode), you MUST use AskUserQuestion to ask these questions:**
 
@@ -135,21 +139,46 @@ const profile = {
   provenance: <answer>,                // "human" | "ai-assisted" | "autonomous" | "unknown"
   autonomy: <detected mode>,           // "supervised" | "autonomous"
   publish: <answer>,                   // "ask" | "auto" | "never"
-  debate: "auto"                       // always default to auto debate
+  debate: "auto",                      // always default to auto debate
+  history: "auto"                      // "auto" | "fresh"
 }
 ```
+
+If the user includes `fresh` in the command text, do not treat it as a file path. Keep the normal target inference and set `history: "fresh"` so this run ignores prior PR review rounds.
+
+## Step 2.5: Ensure plugin root is resolvable (run via Bash tool)
+
+```bash
+OCTO_ROOT="${HOME}/.claude-octopus/plugin"
+if [[ ! -x "$OCTO_ROOT/scripts/orchestrate.sh" ]]; then
+  helper="$OCTO_ROOT/scripts/helpers/ensure-plugin-root.sh"
+  if [[ ! -x "$helper" ]]; then
+    helper="$(find "${HOME}/.claude/plugins/cache" "${HOME}/Library/Application Support/Claude" "${LOCALAPPDATA:-/dev/null}/Claude" "${XDG_DATA_HOME:-${HOME}/.local/share}/Claude" -maxdepth 8 -path "*/nyldn-plugins/octo/*/scripts/helpers/ensure-plugin-root.sh" -print -quit 2>/dev/null)"
+  fi
+  [[ -x "$helper" ]] && bash "$helper" >/dev/null 2>&1 || true
+fi
+test -x "$OCTO_ROOT/scripts/orchestrate.sh" && echo "plugin-root:ok" || echo "plugin-root:missing"
+```
+
+If the output is `plugin-root:missing`, stop and ask the user to run `/octo:setup`.
 
 ## Step 3: Execute Review Pipeline
 
 Run via Bash tool:
 
 ```bash
-/path/to/orchestrate.sh code-review '<profile-json>'
+${HOME}/.claude-octopus/plugin/scripts/orchestrate.sh code-review '<profile-json>'
 ```
 
 Where `<profile-json>` is the JSON profile built in Step 2.
 
 The pipeline runs 3 rounds (parallel fleet → verification → synthesis) and outputs findings. If a PR is open and publish is not "never", it offers to post inline comments.
+
+Round-aware PR history is enabled automatically for open PR reviews. Local state is stored at `~/.claude-octopus/pr-state/<host>/<owner>/<repo>/<pr>.json` and is used to show addressed, persistent, new, and regressed finding counts across repeated `/octo:review` runs. Set `OCTOPUS_PR_HISTORY=0` before invoking the command to disable all history reads and writes.
+
+Each review also writes a local proof packet under `~/.claude-octopus/runs/<run-id>/`. The packet includes `state.json`, `proof.jsonl`, `summary.md`, findings artifacts, and provider substitution records so review claims can be checked after the chat scroll is gone. Set `OCTOPUS_PROOF_PACKET=0` to disable proof packet writes.
+
+If a project already has `graphify-out/GRAPH_REPORT.md`, `/octo:review` also passes a compact Graphify companion context into the reviewer prompt as an orientation map. This is passive: Octopus does not build or refresh the graph during review, and `OCTOPUS_GRAPHIFY=0` disables the injection.
 
 ## What `/octo:review` checks
 

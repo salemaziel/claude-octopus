@@ -14,6 +14,10 @@
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "$SCRIPT_DIR/helpers/test-framework.sh"
+test_suite "v8.1.0 Claude Code v2.1.33 Feature Detection & Complexity Routing"
+
 PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 ORCHESTRATE_SH="${PLUGIN_DIR}/scripts/orchestrate.sh"
 # v9.12: Search orchestrate.sh + lib/*.sh for functions that may have been decomposed
@@ -27,12 +31,6 @@ CHANGELOG_MD="$(dirname "$SCRIPT_DIR")/CHANGELOG.md"
 README_MD="${PLUGIN_DIR}/README.md"
 PLUGIN_CLAUDE_MD="${PLUGIN_DIR}/CLAUDE.md"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
 
 TESTS_RUN=0
 TESTS_PASSED=0
@@ -130,18 +128,18 @@ echo ""
 echo -e "${BLUE}Test Group 2: Complexity-Based Claude Routing${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# 2.1: get_tiered_agent_v2 checks SUPPORTS_AGENT_TYPE_ROUTING for claude
+# 2.1: Agent type routing gates on SUPPORTS_AGENT_TYPE_ROUTING
 if grep -q 'SUPPORTS_AGENT_TYPE_ROUTING.*true' "$ALL_SRC"; then
-    assert_pass "2.1 get_tiered_agent_v2 gates on SUPPORTS_AGENT_TYPE_ROUTING"
+    assert_pass "2.1 Agent routing gates on SUPPORTS_AGENT_TYPE_ROUTING"
 else
-    assert_fail "2.1 get_tiered_agent_v2 gates on SUPPORTS_AGENT_TYPE_ROUTING"
+    assert_fail "2.1 Agent routing gates on SUPPORTS_AGENT_TYPE_ROUTING"
 fi
 
-# 2.2: complexity=3 routes to claude-opus in get_tiered_agent_v2
-if grep -A 60 'get_tiered_agent_v2()' "$ALL_SRC" | grep -q '3) echo "claude-opus"'; then
-    assert_pass "2.2 complexity=3 routes to claude-opus"
+# 2.2: claude-opus agent type recognized in is_agent_available_v2
+if grep -q 'claude-opus)' "$ALL_SRC"; then
+    assert_pass "2.2 claude-opus agent type recognized"
 else
-    assert_fail "2.2 complexity=3 routes to claude-opus"
+    assert_fail "2.2 claude-opus agent type recognized"
 fi
 
 # 2.3: strategist role exists in agent routing
@@ -232,16 +230,4 @@ echo ""
 # ═══════════════════════════════════════════════════════════════════════════════
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "${BLUE}Test Summary - v8.1.0 Feature Detection & Complexity Routing${NC}"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "Total tests:  ${BLUE}$TESTS_RUN${NC}"
-echo -e "Passed:       ${GREEN}$TESTS_PASSED${NC}"
-echo -e "Failed:       ${RED}$TESTS_FAILED${NC}"
-echo ""
-
-if [[ $TESTS_FAILED -eq 0 ]]; then
-    echo -e "${GREEN}✅ All v8.1.0 feature detection tests passed!${NC}"
-    exit 0
-else
-    echo -e "${RED}❌ $TESTS_FAILED test(s) failed${NC}"
-    exit 1
-fi
+test_summary

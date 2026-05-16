@@ -16,16 +16,40 @@ _BARE_OPT="${_BARE_OPT:-}"
 
 # Role-to-agent mapping (function-based for bash 3.x compatibility)
 # Returns agent:model format for a given role
+#
+# v9.29: Role defaults refreshed based on April 2026 benchmark + forum consensus.
+#   - architect/strategist/security-reviewer → claude-opus (SWE-bench Pro 64.3, LMArena #1, MCP-Atlas +9.2)
+#   - code-reviewer/implementer              → gpt-5.4    (Terminal-Bench 75.1, edge-case review)
+# Opt-out:   OCTOPUS_LEGACY_ROLES=1 restores the v9.28 mapping.
+# Fallback:  consumers (see lib/agents.sh get_fallback_agent) silently downshift when the
+#            preferred CLI is unavailable (e.g. no Anthropic auth → architect → gpt-5.4).
 get_role_mapping() {
     local role="$1"
+
+    # Legacy opt-out — v9.28 mapping, preserved verbatim.
+    if [[ "${OCTOPUS_LEGACY_ROLES:-0}" == "1" ]]; then
+        case "$role" in
+            architect)    echo "codex:gpt-5.4" ;;
+            researcher)   echo "gemini:gemini-3.1-pro-preview" ;;
+            reviewer|code-reviewer|security-reviewer) echo "codex-review:gpt-5.4" ;;
+            implementer|implementer-heavy) echo "codex:gpt-5.4" ;;
+            synthesizer)  echo "claude:claude-sonnet-4.6" ;;
+            strategist)   echo "claude-opus:claude-opus-4.6" ;;
+            *)            echo "codex:gpt-5.4" ;;
+        esac
+        return 0
+    fi
+
     case "$role" in
-        architect)    echo "codex:gpt-5.4" ;;                  # System design, planning (v8.48: GPT-5.4)
-        researcher)   echo "gemini:gemini-3.1-pro-preview" ;;   # Deep investigation
-        reviewer)     echo "codex-review:gpt-5.4" ;;          # Code review, validation (v8.48: GPT-5.4)
-        implementer)  echo "codex:gpt-5.4" ;;                 # Code generation (v8.48: GPT-5.4)
-        synthesizer)  echo "claude:claude-sonnet-4.6" ;;      # Result aggregation (v8.17: Sonnet 4.6)
-        strategist)   echo "claude-opus:claude-opus-4.6" ;;   # Premium synthesis (v8.0: Opus 4.6)
-        *)            echo "codex:gpt-5.4" ;;                 # Default (v8.48: GPT-5.4)
+        architect)         echo "claude-opus:$(opus_default_model 2>/dev/null || echo claude-opus-4.7)" ;;  # Planning, UI/UX, architecture
+        researcher)        echo "gemini:gemini-3.1-pro-preview" ;;                                          # Deep investigation
+        reviewer|code-reviewer) echo "codex-review:gpt-5.4" ;;                                              # Code review, edge cases; `reviewer` = alias
+        security-reviewer) echo "claude-opus:$(opus_default_model 2>/dev/null || echo claude-opus-4.7)" ;;  # Adversarial reasoning
+        implementer)       echo "codex:gpt-5.4" ;;                                                          # Default code generation; terminal-heavy
+        implementer-heavy) echo "claude-opus:$(opus_default_model 2>/dev/null || echo claude-opus-4.7)" ;;  # Opt-in: greenfield/refactor/UI-heavy
+        synthesizer)       echo "claude:claude-sonnet-4.6" ;;                                               # Result aggregation
+        strategist)        echo "claude-opus:$(opus_default_model 2>/dev/null || echo claude-opus-4.7)" ;;  # Premium synthesis
+        *)                 echo "codex:gpt-5.4" ;;                                                          # Safe default
     esac
 }
 
@@ -67,54 +91,6 @@ log_role_assignment() {
 # [EXTRACTED to lib/dispatch.sh in v9.7.7]
 
 # get_role_for_context() — extracted to lib/routing.sh (v8.21.0)
-
-# v8.20.0: Wrapper for get_role_for_context with intelligence + capability matching
-get_role_for_context_v820() {
-    local agent_type="$1"
-    local task_type="$2"
-    local phase="${3:-}"
-    local prompt="${4:-}"
-
-    # Get base role from existing logic
-    local role
-    role=$(get_role_for_context "$agent_type" "$task_type" "$phase")
-
-    # v8.20.0: Capability matching override
-    if [[ -n "$prompt" ]] && type extract_task_capabilities &>/dev/null 2>&1; then
-        local task_caps
-        task_caps=$(extract_task_capabilities "$prompt")
-        if [[ -n "$task_caps" ]]; then
-            local best_match
-            best_match=$(find_best_capability_match "$task_caps" "$phase")
-            if [[ -n "$best_match" && "$best_match" != "$role" ]]; then
-                local current_score best_score
-                current_score=$(score_capability_match "$role" "$task_caps" 2>/dev/null || echo "0")
-                best_score=$(score_capability_match "$best_match" "$task_caps" 2>/dev/null || echo "0")
-                if [[ $best_score -gt $((current_score + 20)) ]]; then
-                    log "DEBUG" "Capability match override: $role -> $best_match (score: ${best_score}% vs ${current_score}%)"
-                    role="$best_match"
-                fi
-            fi
-        fi
-    fi
-
-    # v8.20.0: Provider intelligence override
-    if [[ -n "$task_type" ]] && type suggest_routing_override &>/dev/null 2>&1; then
-        local pi_mode="${OCTOPUS_PROVIDER_INTELLIGENCE:-shadow}"
-        local suggestion
-        suggestion=$(suggest_routing_override "$role" "$task_type" "$phase" 2>/dev/null)
-        if [[ -n "$suggestion" ]]; then
-            if [[ "$pi_mode" == "active" ]]; then
-                log "INFO" "Intelligence override: $role -> $suggestion"
-                role="$suggestion"
-            elif [[ "$pi_mode" == "shadow" ]]; then
-                log "DEBUG" "Intelligence suggestion: $role -> $suggestion (not applied -- shadow mode)"
-            fi
-        fi
-    fi
-
-    echo "$role"
-}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # v3.4 FEATURE: CURATED AGENT LOADER
@@ -561,8 +537,8 @@ $prompt"
             ((subtask_num++)) || true
         else
             # Legacy bash subprocess
-            spawn_agent "$agent" "$prompt" "$retry_task_id" "$role" "tangle" &
-            local pid=$!
+            local pid
+            pid=$(spawn_agent_capture_pid "$agent" "$prompt" "$retry_task_id" "$role" "tangle")
             pids="$pids $pid"
             ((subtask_num++)) || true
             ((pid_count++)) || true
@@ -724,4 +700,3 @@ resume_agent() {
 }
 
 # [EXTRACTED to lib/spawn.sh]
-

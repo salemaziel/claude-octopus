@@ -21,14 +21,20 @@ You get:    A structured comparison with three independent viewpoints,
             scored for agreement. Disagreements are flagged, not hidden.
 ```
 
-This works for research, escalated code review, debugging, TDD, escalated security audits, UI design, PRDs, and full build-to-ship workflows — 47 commands, 51 skills, 32 specialized personas.
+This works for research, escalated code review, debugging, TDD, escalated security audits, UI design, PRDs, and full build-to-ship workflows — 48 commands, 52 skills, 32 specialized personas.
+
+Multi-provider runs show an agent summary before synthesis, so failed, timed out, or oversize-rejected Codex/Gemini/OpenRouter/etc. perspectives are visible instead of being hidden behind a polished final answer.
 
 ## Install
 
 ```bash
-claude plugin marketplace add https://github.com/nyldn/claude-octopus.git
+claude plugin marketplace add https://github.com/nyldn/plugins.git
 claude plugin install octo@nyldn-plugins
 ```
+
+The `nyldn-plugins` marketplace is shared with Image Agency at
+`https://github.com/nyldn/plugins.git`, so users can also install
+`img@nyldn-plugins` without adding a second nyldn marketplace.
 
 Then run `/octo:setup` — it detects your providers, shows what's available, and walks you through config. **Zero external providers required to start.** Claude is built in; add others one at a time.
 
@@ -36,20 +42,21 @@ Then run `/octo:setup` — it detects your providers, shows what's available, an
 
 | I want to... | Type this |
 |---|---|
-| Research a topic with multiple AI perspectives | `/octo:research htmx vs react` |
+| Research a topic with multiple AI perspectives | `/octo:research --breadth=standard htmx vs react` |
 | Debate two approaches with structured scoring | `/octo:debate monorepo vs microservices` |
 | Build a feature end-to-end (research → ship) | `/octo:embrace build stripe integration` |
 | Review code with enhanced multi-model analysis | `/octo:review` |
 | Run an escalated security audit (OWASP + adversarial) | `/octo:security` |
 | Write tests first, then code | `/octo:tdd create user auth` |
 | Go from spec to working software autonomously | `/octo:factory "CSV to JSON converter"` |
+| Check which providers contributed to the current run | `octopus agent-summary` |
 | Just do something quick | `/octo:quick fix the login bug` |
 
 Don't know the command? Describe what you need — `/octo:auto <anything>` routes to the right workflow.
 
 ## Prerequisites
 
-- Claude Code v2.1.83+
+- Claude Code v2.1.14+
 - Zero external providers needed (Claude is built in)
 - Optional: Codex CLI, Gemini CLI, Copilot, Qwen, Ollama, Perplexity API key, OpenRouter API key
 - Five of eight providers cost nothing extra (OAuth, free tiers, or local)
@@ -61,7 +68,7 @@ Octopus orchestrates — it doesn't replace domain knowledge. If three models co
 ## Learn More
 
 - [**Full README**](../README.md) — feature deep-dive, provider grid, architecture, star history
-- [**Command Reference**](../docs/COMMAND-REFERENCE.md) — all 47 commands with triggers
+- [**Command Reference**](../docs/COMMAND-REFERENCE.md) — all 48 commands with triggers
 - [**Persona Guide**](../docs/AGENTS.md) — 32 specialized agents
 - [**Changelog**](../CHANGELOG.md) — release history
 - [**Issues**](https://github.com/nyldn/claude-octopus/issues) — bugs and feature requests

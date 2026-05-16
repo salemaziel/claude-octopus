@@ -5,25 +5,6 @@
 # Source-safe: no main execution block.
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Check if Qwen CLI is available and authenticated
-# Returns 0 if ready, 1 if not
-qwen_is_available() {
-    if ! command -v qwen &>/dev/null; then
-        return 1
-    fi
-    # Check auth: OAuth creds first (primary), then API key fallback
-    if [[ -f "${HOME}/.qwen/oauth_creds.json" ]]; then
-        return 0
-    fi
-    if [[ -f "${HOME}/.qwen/config.json" ]]; then
-        return 0
-    fi
-    if [[ -n "${QWEN_API_KEY:-}" ]]; then
-        return 0
-    fi
-    return 1
-}
-
 # Get the auth method currently in use (for doctor/setup reporting)
 # Returns: "oauth", "config", "env:QWEN_API_KEY", or "none"
 qwen_auth_method() {
@@ -56,7 +37,7 @@ qwen_execute() {
     [[ "${VERBOSE:-}" == "true" ]] && log DEBUG "qwen_execute: type=$agent_type, timeout=${timeout}s, auth=$(qwen_auth_method)" || true
 
     local response exit_code
-    response=$(timeout "$timeout" qwen -p "$prompt" --approval-mode yolo -o text --no-ask-user 2>&1) && exit_code=0 || exit_code=$?
+    response=$(timeout "$timeout" qwen -p "$prompt" --approval-mode yolo -o text 2>&1) && exit_code=0 || exit_code=$?
 
     # Handle errors
     if [[ $exit_code -ne 0 ]]; then

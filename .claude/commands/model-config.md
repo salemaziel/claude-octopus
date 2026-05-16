@@ -1,16 +1,42 @@
 ---
 command: model-config
 description: Configure AI provider models for Claude Octopus workflows
-version: 4.0.0
+version: 4.0.1
 category: configuration
 tags: [config, models, providers, codex, gemini, spark, routing, trace, interactive]
 created: 2025-01-21
-updated: 2026-04-06
+updated: 2026-04-21
 ---
 
 # Model Configuration
 
 **Your first output line MUST be:** `🐙 Octopus Model Config`
+
+## STEP 0: Emit Banner (MANDATORY — run before AskUserQuestion or any other step)
+
+```bash
+echo "🐙 Octopus Model Config"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "provider | model | config | routing | cost"
+```
+
+**Preflight — Ensure plugin root is resolvable (run via Bash tool):**
+
+```bash
+OCTO_ROOT="${HOME}/.claude-octopus/plugin"
+if [[ ! -x "$OCTO_ROOT/scripts/orchestrate.sh" ]]; then
+  helper="$OCTO_ROOT/scripts/helpers/ensure-plugin-root.sh"
+  if [[ ! -x "$helper" ]]; then
+    helper="$(find "${HOME}/.claude/plugins/cache" "${HOME}/Library/Application Support/Claude" "${LOCALAPPDATA:-/dev/null}/Claude" "${XDG_DATA_HOME:-${HOME}/.local/share}/Claude" -maxdepth 8 -path "*/nyldn-plugins/octo/*/scripts/helpers/ensure-plugin-root.sh" -print -quit 2>/dev/null)"
+  fi
+  [[ -x "$helper" ]] && bash "$helper" >/dev/null 2>&1 || true
+fi
+test -x "$OCTO_ROOT/scripts/orchestrate.sh" && echo "plugin-root:ok" || echo "plugin-root:missing"
+```
+
+If the output is `plugin-root:missing`, stop and ask the user to run `/octo:setup`.
+
+Run this unconditionally — even when arguments are provided or when going to interactive wizard. The explicit bash block ensures the banner emits even when the command routes straight to `AskUserQuestion` (which historically skipped the inline-prose instruction and broke E2E pattern matching — see #301).
 
 Interactive model configuration wizard. Detects installed providers, shows current settings, and guides users through configuration with AskUserQuestion.
 
@@ -170,8 +196,9 @@ AskUserQuestion({
 ```
 
 After selection, apply the change:
+
 ```bash
-/path/to/orchestrate.sh set-model <provider> <model>
+${HOME}/.claude-octopus/plugin/scripts/orchestrate.sh set-model <provider> <model>
 ```
 
 Then confirm: `✓ Set <provider> default → <model>`

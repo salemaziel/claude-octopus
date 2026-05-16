@@ -30,6 +30,12 @@ printf "copilot:%s\n" "$(command -v copilot >/dev/null 2>&1 && echo installed ||
 printf "qwen:%s\n" "$(command -v qwen >/dev/null 2>&1 && echo installed || echo missing)"
 printf "ollama:%s\n" "$(command -v ollama >/dev/null 2>&1 && curl -sf http://localhost:11434/api/tags >/dev/null 2>&1 && echo running || command -v ollama >/dev/null 2>&1 && echo installed || echo missing)"
 printf "opencode:%s\n" "$(command -v opencode >/dev/null 2>&1 && echo installed || echo missing)"
+printf "remote_session:%s\n" "$([[ "${CLAUDE_CODE_REMOTE:-}" == "true" || "${OCTOPUS_REMOTE_SESSION:-}" == "true" ]] && echo true || echo false)"
+printf "octo_tier:%s\n" "${OCTO_TIER:-unset}"
+echo "=== Companions ==="
+printf "graphify:%s\n" "$(command -v graphify >/dev/null 2>&1 && echo installed || echo missing)"
+GRAPHIFY_OUT_DIR="${GRAPHIFY_OUT:-graphify-out}"
+printf "graphify_graph:%s\n" "$([ -f "${GRAPHIFY_OUT_DIR}/graph.json" ] && [ -f "${GRAPHIFY_OUT_DIR}/GRAPH_REPORT.md" ] && echo available || echo missing)"
 echo "=== Token Optimization ==="
 printf "rtk:%s\n" "$(command -v rtk >/dev/null 2>&1 && echo "installed $(rtk --version 2>&1 | head -1)" || echo missing)"
 printf "rtk_hook:%s\n" "$(grep -q 'rtk' "${HOME}/.claude/settings.json" 2>/dev/null && echo active || echo missing)"
@@ -60,7 +66,78 @@ Providers:
 Token Optimization:
   RTK:              [Installed + Hook active ✓ / Installed ✓ / Missing ✗]
   octo-compress:    [Available ✓ / Not in PATH]
+
+Companions:
+  Graphify:         [CLI installed ✓ / Missing] [Graph available ✓ / Missing]
+
+Session:
+  Remote/Web:       [Yes / No]
+  Project tier:     [unset / prototype / mvp / production]
 ```
+
+## STEP 2a: v9.29 Migration Prompt (one-time, existing users only)
+
+**Before showing the main menu, check if this is an existing user upgrading from ≤9.28.**
+
+Run this bash check — skip migration if state is fresh (first-run) or already ≥9.29:
+
+```bash
+STATE_FILE="${HOME}/.claude-octopus/state.json"
+if [[ -f "$STATE_FILE" ]] && command -v jq >/dev/null 2>&1; then
+  LAST_VERSION=$(jq -r '.last_version // "0.0.0"' "$STATE_FILE" 2>/dev/null)
+  MODEL_DEFAULTS_V2=$(jq -r '.model_defaults_v2 // "unset"' "$STATE_FILE" 2>/dev/null)
+  # Version compare: show migration only if last_version is between 1.x and 9.28
+  if [[ "$LAST_VERSION" != "0.0.0" ]] && [[ "$MODEL_DEFAULTS_V2" == "unset" ]]; then
+    printf "MIGRATION_PROMPT_NEEDED\nlast_version=%s\n" "$LAST_VERSION"
+  fi
+fi
+```
+
+**If `MIGRATION_PROMPT_NEEDED` appears**, show this AskUserQuestion BEFORE the main menu:
+
+```javascript
+AskUserQuestion({
+  questions: [{
+    question: "v9.29.0 refreshed model defaults based on April 2026 benchmarks. Planning + security reviews now use Claude Opus 4.7 (best on SWE-bench Pro + LMArena). Code review + implementation stay on GPT-5.4 (best on Terminal-Bench + edge cases). Opus is ~2x the cost of GPT-5.4 per MTok — this will increase planning-phase cost. How would you like to proceed?",
+    header: "v9.29 Models",
+    multiSelect: false,
+    options: [
+      {label: "Accept new defaults (Recommended)", description: "Use Opus 4.7 for planning/strategy/security, GPT-5.4 for review/implementation"},
+      {label: "Keep v9.28 defaults (GPT-5.4 everywhere)", description: "Sets OCTOPUS_LEGACY_ROLES=1 in your shell profile"},
+      {label: "Open /octo:model-config", description: "Customize per-role routing directly"},
+      {label: "See the diff", description: "Show before/after routing table, then ask again"}
+    ]
+  }]
+})
+```
+
+**Route based on selection:**
+
+- **Accept new defaults** → Write `model_defaults_v2=accepted` and `last_version=9.29.0` to `~/.claude-octopus/state.json`. Continue to STEP 3.
+- **Keep v9.28 defaults** → Append `export OCTOPUS_LEGACY_ROLES=1` to the user's shell profile (detect `~/.zshrc` vs `~/.bashrc` via `$SHELL`), notify them to reload the shell, then write `model_defaults_v2=legacy` + `last_version=9.29.0`. Continue to STEP 3.
+- **Open /octo:model-config** → Invoke that command. Do NOT write state — defer to whatever the user picks there.
+- **See the diff** → Print the routing table below, then re-ask the question.
+
+**Diff table to show:**
+
+```
+Role                 v9.28 (old)                v9.29 (new)
+architect            codex:gpt-5.4              claude-opus:claude-opus-4.7   (was GPT-5.4)
+reviewer             codex-review:gpt-5.4       codex-review:gpt-5.4          (alias → code-reviewer)
+code-reviewer        —                          codex-review:gpt-5.4          (NEW, same as reviewer)
+security-reviewer    —                          claude-opus:claude-opus-4.7   (NEW, split from reviewer)
+implementer          codex:gpt-5.4              codex:gpt-5.4                 (unchanged)
+implementer-heavy    —                          claude-opus:claude-opus-4.7   (NEW, opt-in via role name)
+synthesizer          claude:claude-sonnet-4.6   claude:claude-sonnet-4.6      (unchanged)
+strategist           claude-opus:claude-opus-4.6 claude-opus:claude-opus-4.7  (already on 4.7 via resolver)
+researcher           gemini:gemini-3.1-pro      gemini:gemini-3.1-pro         (unchanged)
+
+Cost impact (per MTok): Opus 4.7 $5/$25 vs GPT-5.4 $2.50/$15 — roughly 2x for planning phases.
+Graceful fallback: roles requiring Opus silently downshift to GPT-5.4 if no Anthropic auth.
+Opt-out anytime: OCTOPUS_LEGACY_ROLES=1
+```
+
+**WHY:** Existing users should not silently inherit the new defaults without a chance to opt out. The one-time prompt gates the behavior change on explicit consent, surfaces cost impact, and writes state so the prompt doesn't recur. Skip entirely for fresh installs (they have no prior mental model to migrate).
 
 ## STEP 3: Interactive Menu (ALWAYS show — even for returning users)
 
@@ -76,8 +153,10 @@ AskUserQuestion({
       {label: "Add or configure a provider", description: "Install Codex, Gemini, Perplexity, Copilot, Qwen, or OpenCode"},
       {label: "Configure models", description: "Set which models are used for each workflow phase → launches /octo:model-config"},
       {label: "Set up token optimization (RTK)", description: "Install RTK for 60-90% token savings on bash output"},
+      {label: "Set up Graphify companion", description: "Detect or install Graphify for optional knowledge-graph context"},
       {label: "Change work mode", description: "Switch between Dev mode and Knowledge Work mode"},
-      {label: "Fine-tune preferences", description: "Banner verbosity, telemetry, cost mode"},
+      {label: "Set project tier", description: "Set OCTO_TIER=prototype|mvp|production as a routing hint"},
+      {label: "Fine-tune preferences", description: "Auto-routing, banner verbosity, telemetry, cost mode"},
       {label: "Troubleshoot an issue", description: "Diagnose a problem → launches /octo:doctor"},
       {label: "Done — everything looks good", description: "Exit setup"}
     ]
@@ -89,7 +168,9 @@ Route based on selection:
 - **Add or configure a provider** → Continue to the provider install flow below
 - **Configure models** → Invoke `/octo:model-config` (the interactive model config wizard)
 - **Set up RTK** → Jump to the RTK section below
+- **Set up Graphify companion** → Jump to the Graphify Companion section below
 - **Change work mode** → Jump to the Work Mode section (STEP 4)
+- **Set project tier** → Jump to Project Tier Hint (STEP 4c)
 - **Fine-tune preferences** → Jump to the Fine-tune section (STEP 5)
 - **Troubleshoot** → Suggest `/octo:doctor`
 - **Done** → Show "Run /octo:setup anytime to change these settings" and exit
@@ -194,9 +275,74 @@ AskUserQuestion({
 
 If "Yes", append `export ENABLE_PROMPT_CACHING_1H=1` to `~/.bashrc` (or `~/.zshrc` per `$SHELL`), only if not already present. Note to the user: this only affects Claude-to-Claude round-trips inside Claude Code. External CLI subshells (Codex, Gemini, Perplexity) are unaffected — their providers manage caching independently.
 
+## STEP 4c: Project Tier Hint
+
+`OCTO_TIER` is a routing and verification hint, not a hard policy.
+
+```javascript
+AskUserQuestion({
+  questions: [{
+    question: "What project tier should Octopus optimize for?",
+    header: "Tier",
+    multiSelect: false,
+    options: [
+      {label: "MVP (Recommended)", description: "Balanced checks, normal review, consensus on risky changes"},
+      {label: "Prototype", description: "Prefer speed, light review, lower provider spend"},
+      {label: "Production", description: "Full verification, security review, stronger consensus before merge/release"},
+      {label: "Leave unset", description: "Use default balanced behavior without a project hint"}
+    ]
+  }]
+})
+```
+
+If a tier is selected, append `export OCTO_TIER=<prototype|mvp|production>` to the user's shell profile or project-local environment, only if not already present.
+
+## Graphify Companion
+
+Graphify is optional and is not a provider. If `graphify-out/GRAPH_REPORT.md` already exists, Octopus uses it as a compact architecture map for escalated workflows such as `/octo:review`; it does not build or refresh graphs automatically.
+
+To install and initialize Graphify when the user opts in:
+
+```bash
+uv tool install graphifyy
+graphify extract .
+graphify claude install
+graphify codex install
+graphify hook install
+```
+
+Use `OCTOPUS_GRAPHIFY=0` to disable passive Graphify context injection.
+
+## Remote/Web Session Defaults
+
+If `remote_session:true` appears in the detection output, assume the user is in a Claude Code web/remote session. Do not launch interactive provider logins from this command. Explain that Octopus defaults to autonomous mode, skips provider probe calls, and uses the lightweight statusline unless overridden with:
+
+```bash
+export OCTOPUS_REMOTE_STATUSLINE=full
+export OCTOPUS_REMOTE_STATUSLINE=off
+```
+
 ## STEP 5: Verify & Summarize
 
 Re-run provider detection to confirm everything works:
+
+
+**Preflight — Ensure plugin root is resolvable (run via Bash tool FIRST):**
+
+```bash
+OCTO_ROOT="${HOME}/.claude-octopus/plugin"
+if [[ ! -x "$OCTO_ROOT/scripts/orchestrate.sh" ]]; then
+  helper="$OCTO_ROOT/scripts/helpers/ensure-plugin-root.sh"
+  if [[ ! -x "$helper" ]]; then
+    helper="$(find "${HOME}/.claude/plugins/cache" "${HOME}/Library/Application Support/Claude" "${LOCALAPPDATA:-/dev/null}/Claude" "${XDG_DATA_HOME:-${HOME}/.local/share}/Claude" -maxdepth 8 -path "*/nyldn-plugins/octo/*/scripts/helpers/ensure-plugin-root.sh" -print -quit 2>/dev/null)"
+  fi
+  [[ -x "$helper" ]] && bash "$helper" >/dev/null 2>&1 || true
+fi
+test -x "$OCTO_ROOT/scripts/orchestrate.sh" && echo "plugin-root:ok" || echo "plugin-root:missing"
+```
+
+If the output is `plugin-root:missing`, stop and ask the user to reinstall `octo@nyldn-plugins`, then retry setup.
+
 
 ```bash
 ${HOME}/.claude-octopus/plugin/scripts/orchestrate.sh detect-providers

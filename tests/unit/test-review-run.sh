@@ -5,25 +5,27 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+source "$SCRIPT_DIR/../helpers/test-framework.sh"
+test_suite "review_run() pipeline, REVIEW.md parsing, fleet fallback, severity output"
+
 ORCHESTRATE="$PROJECT_ROOT/scripts/orchestrate.sh"
 # Combined search target (functions decomposed to lib/ in v9.7.7+)
 ALL_SRC=$(mktemp)
 trap 'rm -f "$ALL_SRC"' EXIT
 cat "$ORCHESTRATE" "$PROJECT_ROOT/scripts/lib/"*.sh > "$ALL_SRC" 2>/dev/null
 
-TEST_COUNT=0; PASS_COUNT=0; FAIL_COUNT=0
-
-pass() { TEST_COUNT=$((TEST_COUNT+1)); PASS_COUNT=$((PASS_COUNT+1)); echo "PASS: $1"; }
-fail() { TEST_COUNT=$((TEST_COUNT+1)); FAIL_COUNT=$((FAIL_COUNT+1)); echo "FAIL: $1 — $2"; }
+pass() { test_case "$1"; test_pass; }
+fail() { test_case "$1"; test_fail "${2:-$1}"; }
 
 assert_contains() {
   local output="$1" pattern="$2" label="$3"
-  echo "$output" | grep -qE "$pattern" && pass "$label" || fail "$label" "missing: $pattern"
+  grep -qE "$pattern" <<< "$output" && pass "$label" || fail "$label" "missing: $pattern"
 }
 
 assert_not_contains() {
   local output="$1" pattern="$2" label="$3"
-  echo "$output" | grep -qE "$pattern" && fail "$label" "should not contain: $pattern" || pass "$label"
+  grep -qE "$pattern" <<< "$output" && fail "$label" "should not contain: $pattern" || pass "$label"
 }
 
 # ── parse_review_md fixture ───────────────────────────────────────────────────
@@ -64,6 +66,9 @@ assert_contains "$(grep -c 'build_review_fleet' "$ALL_SRC" 2>/dev/null || echo 0
 assert_contains "$(grep -c 'review_run' "$ALL_SRC" 2>/dev/null || echo 0)" \
   "[1-9]" "review_run: function exists"
 
+assert_contains "$(grep -c 'review_collect_diff' "$ALL_SRC" 2>/dev/null || echo 0)" \
+  "[1-9]" "review_collect_diff: function exists"
+
 assert_contains "$(grep 'normal\|nit\|pre.existing' "$ALL_SRC" 2>/dev/null | head -5)" \
   "normal|nit|pre.existing" "severity model: all three levels referenced"
 
@@ -102,6 +107,23 @@ assert_contains "$(grep 'post_inline_comments.*findings_file.*||' "$ALL_SRC" 2>/
 assert_contains "$(grep -A2 'commit_id.*headRefOid' "$ALL_SRC" 2>/dev/null | head -10)" \
   'commit_id' "post_inline_comments: empty commit_id guarded"
 
+# ── diff target file support ─────────────────────────────────────────────────
+
+source "$PROJECT_ROOT/scripts/lib/review.sh"
+
+DIFF_TARGET="$TMPDIR_TEST/review-target.diff"
+cat > "$DIFF_TARGET" <<'EOF'
+diff --git a/foo.txt b/foo.txt
+--- a/foo.txt
++++ b/foo.txt
+@@ -1 +1 @@
+-old
++new
+EOF
+
+assert_contains "$(review_collect_diff "$DIFF_TARGET")" \
+  "diff --git a/foo.txt b/foo.txt" "review_collect_diff: reads unified diff file targets"
+
 # ── MCP schema ───────────────────────────────────────────────────────────────
 
 MCP_INDEX="$PROJECT_ROOT/mcp-server/src/index.ts"
@@ -113,9 +135,4 @@ assert_contains "$(cat "$MCP_INDEX" 2>/dev/null)" \
 OPENCLAW_INDEX="$PROJECT_ROOT/openclaw/src/index.ts"
 assert_contains "$(cat "$OPENCLAW_INDEX" 2>/dev/null)" \
   "focus|provenance|autonomy|publish|debate" "openclaw: review tool has typed profile fields"
-
-# ── summary ──────────────────────────────────────────────────────────────────
-
-echo ""
-echo "Total: $TEST_COUNT | Passed: $PASS_COUNT | Failed: $FAIL_COUNT"
-[[ $FAIL_COUNT -gt 0 ]] && exit 1 || exit 0
+test_summary

@@ -5,8 +5,26 @@
 
 set -eo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve the physical path (pwd -P) so SCRIPT_DIR points at the real install
+# directory even when the script is invoked through the ~/.claude-octopus/plugin
+# convenience symlink. Without -P, PLUGIN_DIR would equal the symlink itself,
+# which causes octo_ensure_stable_plugin_root to recreate the symlink pointing
+# at itself (ELOOP). See #371.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
+source "${SCRIPT_DIR}/lib/plugin-root.sh" 2>/dev/null || true
+
+# Self-heal: ensure the stable symlink exists for LLM Bash tool access.
+# The SessionStart hook normally creates this, but if doctor (or any command)
+# is invoked before the hook fires, the symlink may be missing. (fixes #318)
+# Also handles marketplace installs where the hook may not have fired. (#377)
+if declare -f octo_ensure_stable_plugin_root >/dev/null 2>&1; then
+    octo_ensure_stable_plugin_root "$PLUGIN_DIR" >/dev/null 2>&1 || true
+elif [[ ! -e "${HOME}/.claude-octopus/plugin" ]]; then
+    mkdir -p "${HOME}/.claude-octopus"
+    ln -sfn "$PLUGIN_DIR" "${HOME}/.claude-octopus/plugin"
+fi
+
 # Cache platform detection — avoids repeated subprocess spawns (v8.33.0)
 OCTOPUS_PLATFORM="$(uname)"
 
@@ -26,6 +44,18 @@ elif [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
     OCTOPUS_HOST="claude"
 else
     OCTOPUS_HOST="standalone"
+fi
+
+# Claude Code web/remote sessions should bias toward unattended execution and
+# avoid expensive local terminal affordances unless explicitly re-enabled.
+OCTOPUS_REMOTE_SESSION="${OCTOPUS_REMOTE_SESSION:-false}"
+if [[ "${CLAUDE_CODE_REMOTE:-}" == "true" || "${CLAUDE_CODE_WEB:-}" == "true" || "${OCTOPUS_REMOTE_SESSION}" == "true" ]]; then
+    OCTOPUS_REMOTE_SESSION="true"
+    export OCTOPUS_REMOTE_SESSION
+    export CLAUDE_OCTOPUS_AUTONOMY="${CLAUDE_OCTOPUS_AUTONOMY:-${OCTOPUS_AUTONOMY:-autonomous}}"
+    export OCTOPUS_AUTONOMY="${OCTOPUS_AUTONOMY:-$CLAUDE_OCTOPUS_AUTONOMY}"
+    export OCTOPUS_REMOTE_STATUSLINE="${OCTOPUS_REMOTE_STATUSLINE:-minimal}"
+    export OCTOPUS_SKIP_PROVIDER_PROBES="${OCTOPUS_SKIP_PROVIDER_PROBES:-true}"
 fi
 
 # Keep debug flag defined even when nounset is enabled by sourced scripts.
@@ -49,6 +79,7 @@ source "${SCRIPT_DIR}/agent-teams-bridge.sh"
 # Source Wave 1 extractions (v9.3.0 decomposition)
 source "${SCRIPT_DIR}/lib/common.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/utils.sh" 2>/dev/null || true
+source "${SCRIPT_DIR}/lib/session-id.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/similarity.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/models.sh" 2>/dev/null || true
 
@@ -69,11 +100,14 @@ source "${SCRIPT_DIR}/lib/secure.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/providers.sh"
 source "${SCRIPT_DIR}/lib/preflight.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/dispatch.sh" 2>/dev/null || true
-source "${SCRIPT_DIR}/lib/debate.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/progressive.sh" 2>/dev/null || true
+source "${SCRIPT_DIR}/lib/pr-review-state.sh" 2>/dev/null || true
+source "${SCRIPT_DIR}/lib/proof-packet.sh" 2>/dev/null || true
+source "${SCRIPT_DIR}/lib/graphify.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/review.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/workflows.sh"
 source "${SCRIPT_DIR}/lib/doctor.sh" 2>/dev/null || true
+source "${SCRIPT_DIR}/lib/quota-watcher.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/agent-sync.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/persona-loader.sh" 2>/dev/null || true
 
@@ -110,6 +144,7 @@ source "${SCRIPT_DIR}/lib/context.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/perplexity.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/copilot.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/qwen.sh" 2>/dev/null || true
+source "${SCRIPT_DIR}/lib/cursor-agent.sh"
 
 # Cost tracking & usage reporting (v9.7.5 extraction)
 source "${SCRIPT_DIR}/lib/cost.sh" 2>/dev/null || true
@@ -124,13 +159,11 @@ source "${SCRIPT_DIR}/lib/agent-utils.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/memory.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/session.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/semantic-cache.sh" 2>/dev/null || true
-source "${SCRIPT_DIR}/lib/audit.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/interactive.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/parallel.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/factory-spec.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/validation.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/embrace.sh" 2>/dev/null || true
-source "${SCRIPT_DIR}/lib/auto-route.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/heuristics.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/provider-routing.sh" 2>/dev/null || true
 
@@ -372,6 +405,25 @@ SUPPORTS_XHIGH_EFFORT=false             # v9.23: Claude Code v2.1.111+ (xhigh ef
 SUPPORTS_OPUS_4_7=false                 # v9.23: Claude Code v2.1.111+ (claude-opus-4-7 model available via Anthropic API)
 SUPPORTS_AUTO_MODE_GA=false             # v9.23: Claude Code v2.1.111+ (auto mode no longer requires --enable-auto-mode flag)
 SUPPORTS_ULTRAREVIEW=false              # v9.23: Claude Code v2.1.111+ (/ultrareview — cloud parallel multi-agent PR review, complements /octo:review)
+SUPPORTS_GATEWAY_MODEL_DISCOVERY=false  # v9.36: Claude Code v2.1.126+ (/model picker can list Anthropic-compatible gateway /v1/models)
+SUPPORTS_PROJECT_PURGE=false            # v9.36: Claude Code v2.1.126+ (claude project purge clears project transcripts/tasks/config)
+SUPPORTS_SKILL_ACTIVATED_OTEL_TRIGGER=false # v9.36: Claude Code v2.1.126+ (skill_activated OTel includes invocation_trigger)
+SUPPORTS_PLUGIN_ZIP_DIR=false           # v9.36: Claude Code v2.1.128+ (--plugin-dir accepts .zip archives)
+SUPPORTS_MCP_TOOL_COUNTS=false          # v9.36: Claude Code v2.1.128+ (/mcp shows tool counts and zero-tool warnings)
+SUPPORTS_MCP_WORKSPACE_RESERVED=false   # v9.36: Claude Code v2.1.128+ (MCP server name "workspace" is reserved)
+SUPPORTS_LOCAL_SETTINGS_SUGGESTIONS=false # v9.36: Claude Code v2.1.128+ (SDK hosts can persist Bash allow suggestions to localSettings)
+SUPPORTS_SUBPROCESS_OTEL_SCRUB=false    # v9.36: Claude Code v2.1.128+ (Bash/hooks/MCP/LSP no longer inherit OTEL_* vars)
+SUPPORTS_INIT_PLUGIN_ERRORS=false       # v9.36: Claude Code v2.1.128+ (stream-json init.plugin_errors includes plugin-dir load failures)
+SUPPORTS_PARALLEL_SHELL_READONLY_RESILIENCE=false # v9.36: Claude Code v2.1.128+ (read-only shell failure no longer cancels sibling calls)
+SUPPORTS_PLUGIN_UPDATE_NPM=false        # v9.36: Claude Code v2.1.128+ (/plugin update detects npm-sourced plugins)
+SUPPORTS_PLUGIN_URL=false               # v9.36: Claude Code v2.1.129+ (--plugin-url fetches plugin zip for current session)
+SUPPORTS_FORCE_SYNC_OUTPUT=false        # v9.36: Claude Code v2.1.129+ (CLAUDE_CODE_FORCE_SYNC_OUTPUT forces synchronized terminal output)
+SUPPORTS_PACKAGE_MANAGER_AUTO_UPDATE=false # v9.36: Claude Code v2.1.129+ (CLAUDE_CODE_PACKAGE_MANAGER_AUTO_UPDATE prompts after background brew/winget upgrade)
+SUPPORTS_EXPERIMENTAL_MANIFEST_KEYS=false # v9.36: Claude Code v2.1.129+ (themes/monitors should live under experimental)
+SUPPORTS_GATEWAY_MODEL_DISCOVERY_OPT_IN=false # v9.36: Claude Code v2.1.129+ (gateway model discovery requires CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1)
+SUPPORTS_SKILL_OVERRIDES=false          # v9.36: Claude Code v2.1.129+ (skillOverrides off/user-invocable-only/name-only)
+SUPPORTS_PR_COUNT_MCP_OTEL=false        # v9.36: Claude Code v2.1.129+ (claude_code.pull_request.count includes MCP-created PRs)
+SUPPORTS_BASH_SESSION_ID_ENV=false      # v9.37: Claude Code v2.1.132+ (CLAUDE_CODE_SESSION_ID in Bash tool subprocess env)
 OCTOPUS_BACKEND="api"              # v8.16: Detected backend (api|bedrock|vertex|foundry)
 AGENT_TEAMS_ENABLED="${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-0}"
 OCTOPUS_SECURITY_V870="${OCTOPUS_SECURITY_V870:-true}"
@@ -380,7 +432,6 @@ OCTOPUS_MAX_COST_USD="${OCTOPUS_MAX_COST_USD:-}"
 
 # POSIX-compatible string case helpers (macOS ships bash 3.2 which lacks ${var^} and ${var,,})
 _ucfirst() { local _c; _c=$(printf '%s' "${1:0:1}" | tr '[:lower:]' '[:upper:]'); printf '%s' "${_c}${1:1}"; }
-_lowercase() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
 # [EXTRACTED to lib/providers.sh in v9.7.7]
 
@@ -392,11 +443,11 @@ if [[ "$OCTOPUS_HOST" == "codex" ]]; then
 elif [[ "$OCTOPUS_HOST" == "gemini" ]]; then
     CLAUDE_CODE_SESSION="${GEMINI_SESSION_ID:-}"  # HOST:gemini
 else
-    CLAUDE_CODE_SESSION="${CLAUDE_SESSION_ID:-}"  # HOST:claude
+    CLAUDE_CODE_SESSION="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"  # HOST:claude
 fi
 
 # Session-aware directory structure (v7.1)
-# When CLAUDE_SESSION_ID is available, organize results per-session
+# When Claude Code session ID is available, organize results per-session
 if [[ -n "$CLAUDE_CODE_SESSION" ]]; then
     SESSION_RESULTS_DIR="${WORKSPACE_DIR}/results/${CLAUDE_CODE_SESSION}"
     SESSION_LOGS_DIR="${WORKSPACE_DIR}/logs/${CLAUDE_CODE_SESSION}"
@@ -421,14 +472,6 @@ RESULTS_DIR="$SESSION_RESULTS_DIR"
 LOGS_DIR="$SESSION_LOGS_DIR"
 PID_FILE="${WORKSPACE_DIR}/pids"
 ANALYTICS_DIR="${WORKSPACE_DIR}/analytics"
-
-init_session_workspace() {
-    mkdir -p "$SESSION_RESULTS_DIR" "$SESSION_LOGS_DIR" "$SESSION_PLANS_DIR"
-    if [[ -n "$CLAUDE_CODE_SESSION" ]]; then
-        echo "$CLAUDE_CODE_SESSION" > "${SESSION_RESULTS_DIR}/.session-id"
-        echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${SESSION_RESULTS_DIR}/.created-at"
-    fi
-}
 
 # Secure temporary directory (cleaned up on exit)
 OCTOPUS_TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/claude-octopus.XXXXXX")
@@ -501,7 +544,7 @@ CODEX_SUBAGENT_PREAMBLE="IMPORTANT: You are running as a non-interactive subagen
 
 "
 
-AVAILABLE_AGENTS="codex codex-standard codex-max codex-mini codex-general codex-spark codex-reasoning codex-large-context gemini gemini-fast gemini-image codex-review claude claude-sonnet claude-opus claude-opus-fast openrouter openrouter-glm5 openrouter-kimi openrouter-deepseek perplexity perplexity-fast ollama copilot copilot-research qwen qwen-research"
+AVAILABLE_AGENTS="codex codex-standard codex-max codex-mini codex-general codex-spark codex-reasoning codex-large-context gemini gemini-fast gemini-image codex-review claude claude-sonnet claude-opus claude-opus-fast openrouter openrouter-glm5 openrouter-kimi openrouter-deepseek perplexity perplexity-fast ollama copilot copilot-research qwen qwen-research cursor-agent"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # USAGE TRACKING & COST REPORTING (v4.1)
@@ -1130,7 +1173,7 @@ ERROR_CODES=(
     "E006:Agent spawn failed:Check API keys and network connection:help troubleshoot"
     "E007:Quality gate failed:Review output and retry with lower threshold (-q 60):help quality"
     "E008:Timeout exceeded:Increase timeout with -t 600 or break into smaller tasks:help timeout"
-    "E009:Invalid agent type:Use: codex, codex-mini, gemini, gemini-fast:help agents"
+    "E009:Invalid agent type:Use codex, codex-mini, gemini, gemini-fast:help agents"
     "E010:Task file parse error:Check JSON syntax with: jq . tasks.json:help tasks"
 )
 
@@ -1231,7 +1274,7 @@ check_claude_version() {
         fi
 
         if [[ -n "$current_version" ]]; then
-            if version_compare "$current_version" "$min_version"; then
+            if version_compare "$current_version" "$min_version" ">="; then
                 status="ok"
             else
                 status="outdated"
@@ -2043,176 +2086,6 @@ clean_workspace() {
     fi
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# TASK MANAGEMENT INTEGRATION (v7.12.0 - Claude Code v2.1.12+)
-# Native Claude Code task dependency tracking
-# ═══════════════════════════════════════════════════════════════════════════════
-
-create_workflow_tasks() {
-    local workflow_type="$1"  # discover, define, develop, deliver, embrace
-    local description="$2"
-
-    # Only create tasks if v2.1.12+ detected
-    if [[ "$SUPPORTS_TASK_MANAGEMENT" != "true" ]]; then
-        log "DEBUG" "Task management not available, skipping task creation"
-        return 0
-    fi
-
-    # Ensure tasks directory exists
-    mkdir -p "${WORKSPACE_DIR}/tasks"
-
-    log "INFO" "Creating tasks for workflow: $workflow_type"
-
-    case "$workflow_type" in
-        embrace)
-            # Create all 4 phase tasks with dependencies
-            create_task "discover" "$description" "Discovering and researching"
-            create_task "define" "$description" "Defining and scoping" "discover"
-            create_task "develop" "$description" "Developing implementation" "define"
-            create_task "deliver" "$description" "Delivering and validating" "develop"
-            ;;
-        discover|probe)
-            create_task "discover" "$description" "Discovering and researching"
-            ;;
-        define|grasp)
-            create_task "define" "$description" "Defining and scoping"
-            ;;
-        develop|tangle)
-            create_task "develop" "$description" "Developing implementation"
-            ;;
-        deliver|ink)
-            create_task "deliver" "$description" "Delivering and validating"
-            ;;
-    esac
-}
-
-create_task() {
-    local phase="$1"
-    local description="$2"
-    local active_form="$3"
-    local blocked_by="${4:-}"
-
-    # Task ID based on phase and timestamp
-    local task_id="${phase}-$(date +%s)"
-    local task_file="${WORKSPACE_DIR}/tasks/${phase}.id"
-
-    # Write task ID to file for tracking
-    echo "$task_id" > "$task_file"
-
-    # If has dependencies, track them
-    if [[ -n "$blocked_by" ]]; then
-        echo "$blocked_by" > "${WORKSPACE_DIR}/tasks/${phase}.blockedby"
-    fi
-
-    log "INFO" "Created task: $phase (ID: $task_id)"
-
-    # Note: Actual TaskCreate tool call happens in Claude context
-    # This function just tracks task metadata for orchestrate.sh
-}
-
-update_task_status() {
-    local phase="$1"
-    local status="$2"  # in_progress, completed
-
-    if [[ "$SUPPORTS_TASK_MANAGEMENT" != "true" ]]; then
-        return 0
-    fi
-
-    local task_id_file="${WORKSPACE_DIR}/tasks/${phase}.id"
-    if [[ ! -f "$task_id_file" ]]; then
-        log "DEBUG" "No task ID found for phase: $phase"
-        return 0
-    fi
-
-    local task_id=$(<"$task_id_file")
-    log "INFO" "Task $phase ($task_id) status: $status"
-
-    # Write status marker
-    echo "$status" > "${WORKSPACE_DIR}/tasks/${phase}.status"
-    echo "$(date -Iseconds)" > "${WORKSPACE_DIR}/tasks/${phase}.${status}_at"
-
-    # Note: Actual TaskUpdate tool call happens in Claude context
-}
-
-get_task_status_summary() {
-    local tasks_dir="${WORKSPACE_DIR}/tasks"
-
-    if [[ ! -d "$tasks_dir" ]]; then
-        echo "No tasks"
-        return
-    fi
-
-    local in_progress=0
-    local completed=0
-    local pending=0
-
-    for status_file in "$tasks_dir"/*.status; do
-        if [[ -f "$status_file" ]]; then
-            local status=$(<"$status_file")
-            case "$status" in
-                in_progress) ((in_progress++)) ;;
-                completed) ((completed++)) ;;
-                *) ((pending++)) ;;
-            esac
-        fi
-    done
-
-    echo "${in_progress} in progress, ${completed} completed, ${pending} pending"
-}
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# BASH WILDCARD PERMISSION VALIDATION (v7.12.0 - Claude Code v2.1.12+)
-# Flexible CLI pattern matching for external providers
-# ═══════════════════════════════════════════════════════════════════════════════
-
-validate_cli_pattern() {
-    local command="$1"
-    local pattern="$2"
-
-    # Wildcard patterns for external CLIs
-    case "$pattern" in
-        "codex "*|"codex exec "*|"codex standard "*|"codex *")
-            [[ "$command" =~ ^codex[[:space:]] ]] && return 0
-            ;;
-        "gemini "*|"gemini -"*|"gemini *")
-            [[ "$command" =~ ^gemini[[:space:]] ]] && return 0
-            ;;
-        "*/orchestrate.sh "*|*"orchestrate.sh "*)
-            [[ "$command" =~ orchestrate\.sh[[:space:]] ]] && return 0
-            ;;
-        *)
-            [[ "$command" =~ $pattern ]] && return 0
-            ;;
-    esac
-
-    return 1
-}
-
-check_cli_permissions() {
-    local command="$1"
-
-    # Allowed patterns for external CLI execution
-    local allowed_patterns=(
-        "codex exec *"
-        "codex standard *"
-        "codex *"
-        "gemini -r *"
-        "gemini -y *"
-        "gemini *"
-        "*/orchestrate.sh *"
-    )
-
-    for pattern in "${allowed_patterns[@]}"; do
-        if validate_cli_pattern "$command" "$pattern"; then
-            log "DEBUG" "CLI command matched pattern: $pattern"
-            return 0
-        fi
-    done
-
-    log "WARN" "CLI command not in allowed patterns: ${command:0:50}..."
-    return 1
-}
-
 # Parse options
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2330,8 +2203,29 @@ case "$COMMAND" in
     probe-single)
         # v8.54.0: Single-agent probe for multi-agentic skill dispatch
         # Called by Claude's Agent tool (one per perspective) instead of monolithic probe
+        # v9.29.3: Parse --output-dir flag from any position (fixes #340)
+        _ps_args=()
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --output-dir)
+                    if [[ -n "${2:-}" ]]; then
+                        RESULTS_DIR="$2"
+                        mkdir -p "$RESULTS_DIR" 2>/dev/null || true
+                        shift 2
+                    else
+                        echo "Error: --output-dir requires a directory argument" >&2
+                        exit 1
+                    fi
+                    ;;
+                *)
+                    _ps_args+=("$1")
+                    shift
+                    ;;
+            esac
+        done
+        set -- "${_ps_args[@]}"
         if [[ $# -lt 3 ]]; then
-            echo "Usage: $(basename "$0") probe-single <agent_type> <perspective> <task_id> [original_prompt]"
+            echo "Usage: $(basename "$0") probe-single <agent_type> <perspective> <task_id> [original_prompt] [--output-dir <dir>]"
             exit 1
         fi
         probe_single_agent "$1" "$2" "$3" "${4:-}"
@@ -2601,6 +2495,7 @@ case "$COMMAND" in
     # ═══════════════════════════════════════════════════════════════════════════
     grapple)
         # Adversarial debate: Codex vs Gemini until consensus
+        source "${SCRIPT_DIR}/lib/debate.sh" 2>/dev/null || true
         # Handle help flag
         if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
             usage grapple
@@ -2736,9 +2631,9 @@ case "$COMMAND" in
             echo "Usage: $(basename "$0") agent-resume <agent-id> [prompt] [task-id]"
             exit 1
         fi
-        local _agent_id="$1"
-        local _resume_prompt="${2:-Continue where you left off.}"
-        local _resume_task="${3:-$(date +%s)}"
+        _agent_id="$1"
+        _resume_prompt="${2:-Continue where you left off.}"
+        _resume_task="${3:-$(date +%s)}"
         resume_agent "$_agent_id" "$_resume_prompt" "$_resume_task" || {
             log ERROR "resume_agent failed for agent_id=$_agent_id"
             log INFO "Requirements: SUPPORTS_CONTINUATION=true (CC v2.1.55+) AND SUPPORTS_STABLE_AGENT_TEAMS=true"
@@ -2751,6 +2646,7 @@ case "$COMMAND" in
         spawn_agent "$1" "$2"
         ;;
     auto)
+        source "${SCRIPT_DIR}/lib/auto-route.sh" 2>/dev/null || true
         [[ $# -lt 1 ]] && { log ERROR "Usage: auto <prompt>"; exit 1; }
         auto_route "$*"
         ;;
@@ -2773,6 +2669,9 @@ case "$COMMAND" in
         ;;
     status)
         show_status
+        ;;
+    agent-summary|summary)
+        render_agent_summary
         ;;
     analytics)
         generate_analytics_report "${1:-30}"
@@ -2896,6 +2795,7 @@ case "$COMMAND" in
     # OPTIMIZATION COMMANDS (v4.2)
     # ═══════════════════════════════════════════════════════════════════════════
     optimize|optimise)
+        source "${SCRIPT_DIR}/lib/auto-route.sh" 2>/dev/null || true
         [[ $# -lt 1 ]] && { log ERROR "Usage: optimize <prompt>"; exit 1; }
         auto_route "$*"
         ;;
@@ -2944,6 +2844,7 @@ case "$COMMAND" in
     # REVIEW & AUDIT COMMANDS (v4.4 - Human-in-the-loop)
     # ═══════════════════════════════════════════════════════════════════════════
     review)
+        source "${SCRIPT_DIR}/lib/audit.sh" 2>/dev/null || true
         subcommand="${1:-list}"
         shift || true
         case "$subcommand" in
@@ -2972,7 +2873,7 @@ case "$COMMAND" in
         esac
         ;;
     audit)
-        # View audit trail
+        source "${SCRIPT_DIR}/lib/audit.sh" 2>/dev/null || true
         count="${1:-20}"
         filter="${2:-}"
         get_audit_trail "$count" "$filter"

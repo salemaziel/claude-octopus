@@ -4,6 +4,36 @@
 # Extracted from orchestrate.sh (v9.7.4)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ── Fleet dispatch guards ─────────────────────────────────────────────────────
+# orchestrate.sh runs as a Bash tool subprocess. Agent Teams dispatch writes
+# AGENT_TEAMS_DISPATCH: signals to stdout that CC's host never sees in that
+# context, leaving all result files empty (issue #289, #288).
+#
+# Every parallel spawn loop MUST call fleet_dispatch_begin before the first
+# spawn_agent call and fleet_dispatch_end after the last one. The smoke test
+# tests/smoke/test-fleet-dispatch-guard.sh enforces this statically.
+_octopus_agent_sync_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! type start_quota_watcher >/dev/null 2>&1; then
+    source "${_octopus_agent_sync_lib_dir}/quota-watcher.sh" 2>/dev/null || true
+fi
+if ! type is_claude_agent_type >/dev/null 2>&1; then
+    source "${_octopus_agent_sync_lib_dir}/routing.sh" 2>/dev/null || true
+fi
+
+fleet_dispatch_begin() {
+    export OCTOPUS_FORCE_LEGACY_DISPATCH=true
+}
+
+quota_watcher_kill_sync_dispatch() {
+    local dispatch_pid="$1"
+    pkill -KILL -P "$dispatch_pid" 2>/dev/null || true
+    kill -KILL "$dispatch_pid" 2>/dev/null || true
+}
+
+fleet_dispatch_end() {
+    unset OCTOPUS_FORCE_LEGACY_DISPATCH
+}
+
 # Check if an agent should use Agent Teams dispatch
 # Returns 0 (true) if agent should use native teams, 1 (false) for legacy bash
 should_use_agent_teams() {
@@ -25,29 +55,22 @@ should_use_agent_teams() {
 
     # User override: force native for Claude agents
     if [[ "$OCTOPUS_AGENT_TEAMS" == "native" ]]; then
-        case "$agent_type" in
-            claude|claude-sonnet|claude-opus|claude-opus-fast)
-                if [[ "$SUPPORTS_STABLE_AGENT_TEAMS" == "true" ]]; then
-                    return 0
-                else
-                    log "WARN" "Agent Teams forced but SUPPORTS_STABLE_AGENT_TEAMS not available"
-                    return 1
-                fi
-                ;;
-            *)
-                # Non-Claude agents always use legacy (external CLIs)
+        if is_claude_agent_type "$agent_type"; then
+            if [[ "$SUPPORTS_STABLE_AGENT_TEAMS" == "true" ]]; then
+                return 0
+            else
+                log "WARN" "Agent Teams forced but SUPPORTS_STABLE_AGENT_TEAMS not available"
                 return 1
-                ;;
-        esac
+            fi
+        fi
+
+        # Non-Claude agents always use legacy (external CLIs)
+        return 1
     fi
 
     # Auto mode: use teams for Claude agents when stable teams are available
-    if [[ "$SUPPORTS_STABLE_AGENT_TEAMS" == "true" ]]; then
-        case "$agent_type" in
-            claude|claude-sonnet|claude-opus|claude-opus-fast)
-                return 0
-                ;;
-        esac
+    if [[ "$SUPPORTS_STABLE_AGENT_TEAMS" == "true" ]] && is_claude_agent_type "$agent_type"; then
+        return 0
     fi
 
     return 1
@@ -134,6 +157,21 @@ ${earned_skills_ctx}"
 ${provider_ctx}"
     fi
 
+    # v9.37.0: Enforce prompt budget after all sync-agent injections, including
+    # the Codex subagent preamble. This catches oversized prompts before a
+    # provider burns time and exits with a context-length error.
+    if [[ "$agent_type" == codex* && "$agent_type" != "codex-review" ]]; then
+        enhanced_prompt="${CODEX_SUBAGENT_PREAMBLE}${enhanced_prompt}"
+    fi
+    local tokens_in
+    tokens_in=$(( ${#enhanced_prompt} / 4 ))
+    enhanced_prompt=$(enforce_context_budget "$enhanced_prompt" "$role" "$agent_type")
+    local _budget_rc=$?
+    if [[ $_budget_rc -ne 0 ]]; then
+        type write_agent_status >/dev/null 2>&1 && write_agent_status "$agent_type" "failed" "$tokens_in" 0 "Prompt exceeded context budget" 0 "" "$role" || true
+        return "$_budget_rc"
+    fi
+
     log DEBUG "run_agent_sync: agent=$agent_type, role=${role:-none}, phase=${phase:-none}"
 
     # Record usage (get model from agent type)
@@ -148,12 +186,14 @@ ${provider_ctx}"
         claude*)     _provider_for_health="claude" ;;
         openrouter*) _provider_for_health="openrouter" ;;
         perplexity*) _provider_for_health="perplexity" ;;
+        cursor-agent*) _provider_for_health="cursor-agent" ;;
     esac
     if [[ -n "$_provider_for_health" ]]; then
         local _health_diag
         if ! _health_diag=$(check_provider_health "$_provider_for_health" 2>&1); then
             log WARN "Provider '$_provider_for_health' health check failed: $_health_diag"
             log WARN "Skipping agent dispatch for $agent_type (provider unavailable)"
+            type write_agent_status >/dev/null 2>&1 && write_agent_status "$agent_type" "failed" "$tokens_in" 0 "Provider unavailable: $_health_diag" 0 "" "$role" || true
             echo "[Provider $_provider_for_health unavailable: $_health_diag]"
             return 1
         fi
@@ -172,22 +212,28 @@ ${provider_ctx}"
 
     # SECURITY: Use array-based execution to prevent word-splitting vulnerabilities
     local -a cmd_array
-    read -ra cmd_array <<< "$cmd"
+    local -a inner_cmd_array
+    build_provider_env "$agent_type"
+    read -ra inner_cmd_array <<< "$cmd"
+    if [[ ${#PROVIDER_ENV_ARRAY[@]} -gt 0 ]]; then
+        cmd_array=("${PROVIDER_ENV_ARRAY[@]}" "${inner_cmd_array[@]}")
+        log "DEBUG" "Credential isolation active for $agent_type"
+    else
+        cmd_array=("${inner_cmd_array[@]}")
+    fi
 
     # Capture output and exit code separately
     local output
     local exit_code
     local temp_err="${RESULTS_DIR}/.tmp-agent-error-$$.err"
+    local temp_out="${RESULTS_DIR}/.tmp-agent-out-$$.out"
 
     # v8.10.0: Gemini uses stdin-based prompt delivery (Issue #25)
     # -p "" triggers headless mode; prompt content comes via stdin to avoid OS arg limits
-    if [[ "$agent_type" == gemini* ]]; then
+    # Qwen and Cursor Agent follow the same headless contract; Copilot parity is
+    # maintained with spawn/workflows dispatch paths.
+    if [[ "$agent_type" == gemini* || "$agent_type" == copilot* || "$agent_type" == qwen* || "$agent_type" == cursor-agent* ]]; then
         cmd_array+=(-p "")
-    fi
-
-    # v9.2.2: Inject subagent preamble for Codex dispatches (Issue #176)
-    if [[ "$agent_type" == codex* && "$agent_type" != "codex-review" ]]; then
-        enhanced_prompt="${CODEX_SUBAGENT_PREAMBLE}${enhanced_prompt}"
     fi
 
     # v9.2.2: All agents use stdin to avoid ARG_MAX "Argument list too long" on large diffs (Issue #173)
@@ -195,11 +241,45 @@ ${provider_ctx}"
     local _dispatch_start _dispatch_cwd
     _dispatch_start=$(date +%s)
     _dispatch_cwd=$(pwd)
-    output=$(printf '%s' "$enhanced_prompt" | run_with_timeout "$timeout_secs" "${cmd_array[@]}" 2>"$temp_err")
-    exit_code=$?
+
+    # Quota fast-fail watcher for Gemini. Gemini CLI retries internally for
+    # hours on QUOTA_EXHAUSTED instead of exiting; kill early.
+    local _quota_watcher_pid=""
+    local _dispatch_pid=""
+
+    # Always init temp files so readers never fail on missing file.
+    > "$temp_err"
+    > "$temp_out"
+
+    if [[ "$agent_type" == gemini* ]]; then
+        # Option B (4/4 debate verdict): background dispatch + targeted PID kill
+        printf '%s' "$enhanced_prompt" \
+            | run_with_timeout "$timeout_secs" "${cmd_array[@]}" 2>"$temp_err" >"$temp_out" &
+        _dispatch_pid=$!
+
+        _quota_watcher_pid=$(start_quota_watcher \
+            "$_dispatch_pid" \
+            "$temp_err" \
+            "$temp_out" \
+            quota_watcher_kill_sync_dispatch \
+            "[$agent_type] Quota exhaustion detected in sync agent - fast-failing")
+
+        wait "$_dispatch_pid" 2>/dev/null && exit_code=0 || exit_code=$?
+        [[ $exit_code -eq 137 ]] && exit_code=1
+        output=$(cat "$temp_out")
+    else
+        set +e
+        printf '%s' "$enhanced_prompt" | run_with_timeout "$timeout_secs" "${cmd_array[@]}" 2>"$temp_err" >"$temp_out"
+        exit_code=$?
+        set -e
+        output=$(cat "$temp_out")
+    fi
+
+    stop_quota_watcher "$_quota_watcher_pid"
 
     # Tail-bias: the deliverable summary lives at the end of codex-style output.
     local _max_bytes="${OCTOPUS_AGENT_MAX_OUTPUT_BYTES:-262144}"
+    local _sync_output_truncated=false
     if [[ -n "$output" && $_max_bytes -gt 0 && ${#output} -gt $_max_bytes ]]; then
         local _orig_bytes=${#output}
         # Build the banner first so we can measure it exactly and budget the
@@ -220,7 +300,11 @@ ${provider_ctx}"
             output="${output:0:$_head_bytes}${_banner}${output:$_tail_start:$_tail_bytes}"
         fi
         log WARN "Agent $agent_type output truncated: ${_orig_bytes}B → ${#output}B (cap=${_max_bytes}B)"
+        _sync_output_truncated=true
     fi
+
+    local _elapsed_ms
+    _elapsed_ms=$(( ($(date +%s) - _dispatch_start) * 1000 ))
 
     # Check exit code and handle errors
     if [[ $exit_code -ne 0 ]]; then
@@ -259,12 +343,37 @@ ${provider_ctx}"
                 fi
             fi
         fi
-        rm -f "$temp_err"
+        local _sync_status="failed"
+        local _sync_reason="Exit code $exit_code"
+        if [[ $exit_code -eq 124 || $exit_code -eq 143 ]]; then
+            _sync_status="timeout"
+            _sync_reason="Timed out before completion"
+        fi
+        type write_agent_status >/dev/null 2>&1 && write_agent_status "$agent_type" "$_sync_status" "$tokens_in" "$(octo_estimate_tokens_for_file "$temp_out" 2>/dev/null || echo 0)" "$_sync_reason" "$_elapsed_ms" "" "$role" || true
+        rm -f "$temp_err" "$temp_out"
         return $exit_code
     fi
 
+    if type classify_agent_output >/dev/null 2>&1; then
+        local _classification _sync_status _sync_reason
+        _classification=$(classify_agent_output "$temp_out" "$exit_code" "$agent_type" "$temp_err")
+        _sync_status="${_classification%%:*}"
+        _sync_reason="${_classification#*:}"
+        if [[ "$_sync_status" == "failed" ]]; then
+            log ERROR "Agent $agent_type returned unusable output: $_sync_reason"
+            type write_agent_status >/dev/null 2>&1 && write_agent_status "$agent_type" "failed" "$tokens_in" "$(octo_estimate_tokens_for_file "$temp_out" 2>/dev/null || echo 0)" "$_sync_reason" "$_elapsed_ms" "" "$role" || true
+            rm -f "$temp_err" "$temp_out"
+            return 1
+        fi
+        if [[ "$_sync_output_truncated" == "true" ]]; then
+            _sync_status="degraded"
+            _sync_reason="Output truncated"
+        fi
+        type write_agent_status >/dev/null 2>&1 && write_agent_status "$agent_type" "$_sync_status" "$tokens_in" "$(octo_estimate_tokens_for_file "$temp_out" 2>/dev/null || echo 0)" "$_sync_reason" "$_elapsed_ms" "" "$role" || true
+    fi
+
     # v8.7.0: Wrap external CLI output with trust markers
-    case "$agent_type" in codex*|gemini*|perplexity*)
+    case "$agent_type" in codex*|gemini*|perplexity*|cursor-agent*)
         output=$(wrap_cli_output "$agent_type" "$output") ;; esac
 
     # Check if output is suspiciously empty or placeholder
@@ -275,7 +384,7 @@ ${provider_ctx}"
         fi
     fi
 
-    rm -f "$temp_err"
+    rm -f "$temp_err" "$temp_out"
 
     # v7.25.0: Record metrics completion
     if [[ -n "$metrics_id" ]] && command -v record_agent_complete &> /dev/null; then

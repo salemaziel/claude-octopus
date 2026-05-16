@@ -79,7 +79,14 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
     # (probe dispatch has minimal variable content — context budget is the boundary)
 
     # v8.10.0: Enforce context budget AFTER all injections
-    enhanced_prompt=$(enforce_context_budget "$enhanced_prompt" "$role")
+    local tokens_in
+    tokens_in=$(( ${#enhanced_prompt} / 4 ))
+    enhanced_prompt=$(enforce_context_budget "$enhanced_prompt" "$role" "$agent_type")
+    local _budget_rc=$?
+    if [[ $_budget_rc -ne 0 ]]; then
+        type write_agent_status >/dev/null 2>&1 && write_agent_status "$agent_type" "failed" "$tokens_in" 0 "Prompt exceeded context budget" 0 "" "$role" || true
+        return "$_budget_rc"
+    fi
 
     # Resolve model and command
     local model
@@ -109,6 +116,7 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
         copilot*) provider_name="copilot" ;;
         ollama*) provider_name="ollama" ;;
         qwen*) provider_name="qwen" ;;
+        cursor-agent*) provider_name="cursor-agent" ;;
         opencode*) provider_name="opencode" ;;
         *) provider_name="$agent_type" ;;
     esac
@@ -121,12 +129,13 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
 
     # Build command array with credential isolation
     local -a cmd_array
-    local env_prefix
-    env_prefix=$(build_provider_env "$agent_type")
-    if [[ -n "$env_prefix" ]]; then
-        read -ra cmd_array <<< "$env_prefix $cmd"
+    local -a inner_cmd_array
+    build_provider_env "$agent_type"
+    read -ra inner_cmd_array <<< "$cmd"
+    if [[ ${#PROVIDER_ENV_ARRAY[@]} -gt 0 ]]; then
+        cmd_array=("${PROVIDER_ENV_ARRAY[@]}" "${inner_cmd_array[@]}")
     else
-        read -ra cmd_array <<< "$cmd"
+        cmd_array=("${inner_cmd_array[@]}")
     fi
 
     local temp_output="${RESULTS_DIR}/.tmp-${task_id}.out"
@@ -144,10 +153,9 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
     echo "## Output" >> "$result_file"
     echo '```' >> "$result_file"
 
-    # Append gemini/copilot/qwen headless flag (-p "" triggers stdin reading)
-    # NOTE: .toml commands exist for human use but don't compose with stdin in headless mode
-    # Qwen is a fork of Gemini CLI — same flags
-    if [[ "$agent_type" == gemini* ]] || [[ "$agent_type" == copilot* ]] || [[ "$agent_type" == qwen* ]]; then
+    # Append headless flag (-p "" triggers stdin reading) for CLI providers
+    # Qwen and Cursor Agent are forks of Gemini CLI — same flags
+    if [[ "$agent_type" == gemini* ]] || [[ "$agent_type" == copilot* ]] || [[ "$agent_type" == qwen* ]] || [[ "$agent_type" == cursor-agent* ]]; then
         cmd_array+=(-p "")
     fi
 
@@ -162,6 +170,7 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
 
     local auth_attempt=0
     local exit_code=0
+    local final_rc=0
     local start_time_ms
     start_time_ms=$(( $(date +%s) * 1000 ))
 
@@ -203,50 +212,129 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
 
     # Process output
     if [[ $exit_code -eq 0 ]]; then
-        awk '
-            BEGIN { in_response = 0; header_done = 0; }
-            /^--------$/ { header_done = 1; next; }
-            !header_done { next; }
-            /^(codex|gemini|qwen|assistant)$/ { in_response = 1; next; }
-            /^thinking$/ { next; }
-            /^tokens used$/ { next; }
-            /^[0-9,]+$/ && in_response { next; }
-            in_response { print; }
-        ' "$temp_output" >> "$result_file"
-
-        # Trust marker for external CLI output
-        case "$agent_type" in codex*|gemini*|qwen*|perplexity*)
-            if [[ "${OCTOPUS_SECURITY_V870:-true}" == "true" ]]; then
-                sed -i.bak '1s/^/<!-- trust=untrusted provider='"$agent_type"' -->\n/' "$result_file" 2>/dev/null || true
-                rm -f "${result_file}.bak"
-            fi ;; esac
-
-        echo '```' >> "$result_file"
-        echo "" >> "$result_file"
-        echo "## Status: SUCCESS" >> "$result_file"
-
-        local end_time_ms elapsed_ms
-        end_time_ms=$(( $(date +%s) * 1000 ))
-        elapsed_ms=$((end_time_ms - start_time_ms))
-        update_agent_status "$agent_type" "completed" "$elapsed_ms" 0.0
-        record_outcome "$agent_type" "$agent_type" "research" "$phase" "success" "$elapsed_ms" 2>/dev/null || true
-        # v9.3.0: Record file co-occurrence pattern for heuristic learning
-        record_run_pattern "$agent_type" "${enhanced_prompt:-$original_prompt}" "$result_file" 2>/dev/null || true
-    elif [[ $exit_code -eq 124 ]] || [[ $exit_code -eq 143 ]]; then
-        # Timeout — preserve partial output
-        if [[ -s "$temp_output" ]]; then
+        local separator_count
+        separator_count=$(grep -cE '^--------$' "$temp_output" 2>/dev/null || true)
+        separator_count=${separator_count%%$'\n'*}
+        separator_count=${separator_count:-0}
+        if [[ "$agent_type" == cursor-agent* ]]; then
+            # cursor-agent stdout is clean — strip surrounding blanks only
+            awk '
+                !started && /^[[:space:]]*$/ { next }
+                { started = 1; lines[++count] = $0 }
+                END {
+                    while (count > 0 && lines[count] ~ /^[[:space:]]*$/) {
+                        count--
+                    }
+                    for (i = 1; i <= count; i++) {
+                        print lines[i]
+                    }
+                }
+            ' "$temp_output" >> "$result_file"
+        elif [[ "${separator_count:-0}" -gt 0 ]]; then
+            # v9.27.0: Port #191 awk-header-guard fix from spawn_agent — codex exec
+            # sends clean response on stdout (no header), banner on stderr.
             awk '
                 BEGIN { in_response = 0; header_done = 0; }
                 /^--------$/ { header_done = 1; next; }
                 !header_done { next; }
                 /^(codex|gemini|qwen|assistant)$/ { in_response = 1; next; }
+                /^thinking$/ { next; }
+                /^tokens used$/ { next; }
+                /^[0-9,]+$/ && in_response { next; }
                 in_response { print; }
             ' "$temp_output" >> "$result_file"
+        else
+            # No separator + not cursor-agent: strip noise banners (v9.27.0)
+            grep -v \
+                -e '^MCP issues detected' \
+                -e '^Loading extension:' \
+                -e '^YOLO mode is enabled' \
+                -e '^Keychain initialization' \
+                -e '^Using FileKeychain' \
+                -e '^Loaded cached credentials' \
+                -e '^Run /mcp' \
+                "$temp_output" >> "$result_file" 2>/dev/null || cat "$temp_output" >> "$result_file"
+        fi
+
+        # Trust marker for external CLI output
+        case "$agent_type" in codex*|gemini*|qwen*|perplexity*|cursor-agent*)
+            if [[ "${OCTOPUS_SECURITY_V870:-true}" == "true" ]]; then
+                sed -i.bak '1s/^/<!-- trust=untrusted provider='"$agent_type"' -->\n/' "$result_file" 2>/dev/null || true
+                rm -f "${result_file}.bak"
+            fi ;; esac
+
+        local end_time_ms elapsed_ms
+        end_time_ms=$(( $(date +%s) * 1000 ))
+        elapsed_ms=$((end_time_ms - start_time_ms))
+
+        local classification status reason tokens_out
+        classification=$(classify_agent_output "$temp_output" "$exit_code" "$agent_type" "$temp_errors" 2>/dev/null || echo "ok:")
+        status="${classification%%:*}"
+        reason="${classification#*:}"
+        tokens_out=$(octo_estimate_tokens_for_file "$temp_output" 2>/dev/null || echo 0)
+
+        echo '```' >> "$result_file"
+        echo "" >> "$result_file"
+        # Legacy result consumers look for literal "Status: FAILED" and "Status: TIMEOUT" markers.
+        case "$status" in
+            failed)
+                echo "## Status: FAILED (${reason:-unusable output})" >> "$result_file"
+                if [[ -s "$temp_errors" ]]; then
+                    echo "" >> "$result_file"
+                    echo "## Errors" >> "$result_file"
+                    echo '```' >> "$result_file"
+                    cat "$temp_errors" >> "$result_file"
+                    echo '```' >> "$result_file"
+                fi
+                update_agent_status "$agent_type" "failed" "$elapsed_ms" 0.0
+                record_outcome "$agent_type" "$agent_type" "research" "$phase" "fail" "$elapsed_ms" 2>/dev/null || true
+                type write_agent_status >/dev/null 2>&1 && write_agent_status "$agent_type" "failed" "$tokens_in" "$tokens_out" "${reason:-unusable output}" "$elapsed_ms" "$result_file" "$role" || true
+                final_rc=1
+                ;;
+            degraded)
+                echo "## Status: SUCCESS (DEGRADED: ${reason:-partial output})" >> "$result_file"
+                update_agent_status "$agent_type" "completed" "$elapsed_ms" 0.0
+                record_outcome "$agent_type" "$agent_type" "research" "$phase" "success" "$elapsed_ms" 2>/dev/null || true
+                record_run_pattern "$agent_type" "${enhanced_prompt:-$original_prompt}" "$result_file" 2>/dev/null || true
+                type write_agent_status >/dev/null 2>&1 && write_agent_status "$agent_type" "degraded" "$tokens_in" "$tokens_out" "${reason:-partial output}" "$elapsed_ms" "$result_file" "$role" || true
+                ;;
+            *)
+                echo "## Status: SUCCESS" >> "$result_file"
+                update_agent_status "$agent_type" "completed" "$elapsed_ms" 0.0
+                record_outcome "$agent_type" "$agent_type" "research" "$phase" "success" "$elapsed_ms" 2>/dev/null || true
+                # v9.3.0: Record file co-occurrence pattern for heuristic learning
+                record_run_pattern "$agent_type" "${enhanced_prompt:-$original_prompt}" "$result_file" 2>/dev/null || true
+                type write_agent_status >/dev/null 2>&1 && write_agent_status "$agent_type" "ok" "$tokens_in" "$tokens_out" "" "$elapsed_ms" "$result_file" "$role" || true
+                ;;
+        esac
+    elif [[ $exit_code -eq 124 ]] || [[ $exit_code -eq 143 ]]; then
+        # Timeout — preserve partial output
+        if [[ -s "$temp_output" ]]; then
+            if [[ $(grep -c '^--------$' "$temp_output" 2>/dev/null || true) -gt 0 ]]; then
+                awk '
+                    BEGIN { in_response = 0; header_done = 0; }
+                    /^--------$/ { header_done = 1; next; }
+                    !header_done { next; }
+                    /^(codex|gemini|qwen|assistant)$/ { in_response = 1; next; }
+                    /^thinking$/ { next; }
+                    /^tokens used$/ { next; }
+                    /^[0-9,]+$/ && in_response { next; }
+                    in_response { print; }
+                ' "$temp_output" >> "$result_file"
+            else
+                cat "$temp_output" >> "$result_file"
+            fi
         fi
         echo '```' >> "$result_file"
         echo "" >> "$result_file"
         echo "## Status: TIMEOUT" >> "$result_file"
         log "WARN" "Agent $agent_type timed out for task $task_id"
+        local end_time_ms elapsed_ms tokens_out
+        end_time_ms=$(( $(date +%s) * 1000 ))
+        elapsed_ms=$((end_time_ms - start_time_ms))
+        tokens_out=$(octo_estimate_tokens_for_file "$temp_output" 2>/dev/null || echo 0)
+        type write_agent_status >/dev/null 2>&1 && write_agent_status "$agent_type" "timeout" "$tokens_in" "$tokens_out" "Timed out before completion" "$elapsed_ms" "$result_file" "$role" || true
+        final_rc=$exit_code
     else
         # Failure
         if [[ -s "$temp_output" ]]; then
@@ -263,6 +351,12 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
             echo '```' >> "$result_file"
         fi
         log "WARN" "Agent $agent_type failed for task $task_id (exit=$exit_code)"
+        local end_time_ms elapsed_ms tokens_out
+        end_time_ms=$(( $(date +%s) * 1000 ))
+        elapsed_ms=$((end_time_ms - start_time_ms))
+        tokens_out=$(octo_estimate_tokens_for_file "$temp_output" 2>/dev/null || echo 0)
+        type write_agent_status >/dev/null 2>&1 && write_agent_status "$agent_type" "failed" "$tokens_in" "$tokens_out" "Exit code $exit_code" "$elapsed_ms" "$result_file" "$role" || true
+        final_rc=$exit_code
     fi
 
     # Cleanup temp files
@@ -271,6 +365,7 @@ IMPORTANT: If you find yourself searching or grepping more than 3 times in a row
     log "INFO" "probe_single_agent complete: $result_file"
     # Output the result file path for the caller
     echo "$result_file"
+    return "$final_rc"
 }
 
 # Phase 1: PROBE (Discover) - Parallel research with synthesis
@@ -279,6 +374,8 @@ probe_discover() {
     local _ts; _ts=$(date +%s)
     local prompt="$1"
     local task_group="$_ts"
+    export OCTOPUS_COMMAND="${OCTOPUS_COMMAND:-discover}"
+    export OCTOPUS_COMMAND_ARGS="${OCTOPUS_COMMAND_ARGS:-$prompt}"
 
     echo ""
     octopus_phase_banner "RESEARCH (Phase 1/4)" "Parallel Exploration" "$MAGENTA"
@@ -407,11 +504,7 @@ ${_blind_spot_checklist}"
     # Initialize progress tracking with actual agent count (dynamic, may be 5, 6, or 7)
     init_progress_tracking "discover" "${#perspectives[@]}"
 
-    # P0-B fix: Force legacy (bash CLI) dispatch for probe-phase agents.
-    # orchestrate.sh runs as a Bash tool subprocess, so Agent Teams JSON
-    # instruction files are never picked up by Claude Code's native dispatcher
-    # and SubagentStop hooks never fire, leaving result files empty.
-    export OCTOPUS_FORCE_LEGACY_DISPATCH=true
+    fleet_dispatch_begin
 
     local pids=()
     for i in "${!perspectives[@]}"; do
@@ -426,13 +519,14 @@ ${_blind_spot_checklist}"
             pids+=("$pid")
         else
             # Standard spawning
-            spawn_agent "$agent" "$perspective" "$task_id" "researcher" "probe" &
-            pids+=($!)
+            local pid
+            pid=$(spawn_agent_capture_pid "$agent" "$perspective" "$task_id" "researcher" "probe")
+            pids+=("$pid")
         fi
         sleep 0.1
     done
 
-    unset OCTOPUS_FORCE_LEGACY_DISPATCH
+    fleet_dispatch_end
 
     log INFO "Spawned ${#pids[@]} parallel research threads"
 
@@ -495,7 +589,7 @@ ${_blind_spot_checklist}"
             elif grep -q "Status: FAILED" "$result_file"; then
                 if [[ $file_size -gt 1024 ]]; then
                     echo -e " ${YELLOW}⚠${NC}  $agent_display probe $i: failed but has output ($(numfmt --to=iec-i --suffix=B $file_size 2>/dev/null || echo "${file_size}B"))"
-                    ((timeout_count++))  # Count as partial success
+                    ((timeout_count++)) || true  # Count as partial success
                 else
                     echo -e " ${RED}✗${NC} $agent_display probe $i: failed ($(numfmt --to=iec-i --suffix=B $file_size 2>/dev/null || echo "${file_size}B"))"
                     ((failure_count++)) || true
@@ -504,7 +598,7 @@ ${_blind_spot_checklist}"
                 # No clear status marker - check file size
                 if [[ $file_size -gt 1024 ]]; then
                     echo -e " ${YELLOW}?${NC} $agent_display probe $i: unknown status but has content ($(numfmt --to=iec-i --suffix=B $file_size 2>/dev/null || echo "${file_size}B"))"
-                    ((timeout_count++))  # Count as partial success
+                    ((timeout_count++)) || true  # Count as partial success
                 else
                     echo -e " ${RED}✗${NC} $agent_display probe $i: empty or missing ($(numfmt --to=iec-i --suffix=B $file_size 2>/dev/null || echo "${file_size}B"))"
                     ((failure_count++)) || true
@@ -539,6 +633,13 @@ ${_blind_spot_checklist}"
         fi
     fi
     echo ""
+
+    # v9.37.0: Make provider participation explicit before synthesis so users
+    # can tell which LLMs actually contributed and fail-fast if all providers
+    # are required.
+    if type render_agent_summary >/dev/null 2>&1; then
+        render_agent_summary || return $?
+    fi
 
     # v8.48.0: Write synthesis marker before attempting synthesis
     # WHY: The Bash tool's 120s timeout frequently kills the process during
@@ -720,6 +821,47 @@ tangle_develop() {
 
     # Step 1: Decompose into validated subtasks
     log INFO "Step 1: Task decomposition..."
+
+    # Resolve a referenced Markdown plan file without letting grep/head trip
+    # pipefail when the prompt has no file token.
+    local resolved_prompt="$prompt"
+    local file_ref=""
+    local raw_file_ref=""
+    local token
+    local noglob_was_set=false
+    [[ "$-" == *f* ]] && noglob_was_set=true || set -f
+    for token in $prompt; do
+        if [[ "$token" == *.md ]]; then
+            raw_file_ref="$token"
+            file_ref="${token/#\~/$HOME}"
+            break
+        fi
+    done
+    [[ "$noglob_was_set" == "false" ]] && set +f
+    if [[ -n "$file_ref" && -f "$file_ref" ]]; then
+        local file_content
+        file_content=$(<"$file_ref")
+        local plan_block="--- PLAN: ${file_ref} ---
+${file_content}
+--- END PLAN ---"
+        local trimmed_prompt="$prompt"
+        trimmed_prompt="${trimmed_prompt#"${trimmed_prompt%%[![:space:]]*}"}"
+        trimmed_prompt="${trimmed_prompt%"${trimmed_prompt##*[![:space:]]}"}"
+
+        if [[ "$trimmed_prompt" == "$raw_file_ref" || "$trimmed_prompt" == "$file_ref" ]]; then
+            resolved_prompt="Implement the code changes described in the following plan. Do NOT modify the plan file itself (${file_ref}).
+
+${plan_block}"
+        else
+            resolved_prompt="${prompt}
+
+The following referenced plan file has been resolved. Use it as implementation context and do NOT modify the plan file itself (${file_ref}).
+
+${plan_block}"
+        fi
+        log INFO "Resolved file reference: ${file_ref} - injecting content into decompose prompt"
+    fi
+
     local decompose_prompt="Decompose this task into subtasks that can be executed in parallel.
 Each subtask should be:
 - Self-contained and independently verifiable
@@ -728,14 +870,15 @@ Each subtask should be:
 
 **Cohesion rule:** If the task produces a single deliverable (one file, one script, one page, one config), keep it as ONE subtask — do not split it. Only decompose when subtasks are truly independent with no cross-file references between them. Aim for 2-6 subtasks; fewer is better when the work is tightly coupled.
 
-${context}Task: $prompt
+${context}Task: $resolved_prompt
 
 Output as numbered list with [CODING] or [REASONING] prefix for each subtask."
 
     local subtasks
-    subtasks=$(run_agent_sync "gemini" "$decompose_prompt" 120 "researcher" "tangle") || {
-        log WARN "Decomposition failed, falling back to direct execution"
-        spawn_agent "codex" "$prompt" "tangle-${task_group}-direct" "implementer" "tangle"
+    subtasks=$(run_agent_sync "gemini" "$decompose_prompt" 120 "researcher" "tangle") || \
+    subtasks=$(run_agent_sync "codex" "$decompose_prompt" 120 "researcher" "tangle") || {
+        log WARN "Decomposition failed with all providers, falling back to direct execution"
+        spawn_agent "codex" "$resolved_prompt" "tangle-${task_group}-direct" "implementer" "tangle"
         wait
         return
     }
@@ -748,7 +891,9 @@ Output as numbered list with [CODING] or [REASONING] prefix for each subtask."
     log INFO "Step 2: Parallel execution..."
     local subtask_num=0
     local pids=()
+    local task_ids=()
 
+    fleet_dispatch_begin
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         [[ ! "$line" =~ ^[0-9]+[\.\)] ]] && continue
@@ -767,6 +912,10 @@ Output as numbered list with [CODING] or [REASONING] prefix for each subtask."
         local task_id="tangle-${task_group}-${subtask_num}"
         local pane_title="$pane_icon Subtask $((subtask_num+1))"
 
+        # Tangle currently routes only CLI-backed codex/gemini workers. Its
+        # completion watcher relies on .done markers written by the legacy
+        # spawn path; add equivalent hook markers before routing Claude Agent
+        # Teams into this loop.
         if [[ "$TMUX_MODE" == "true" ]]; then
             # Use async+tmux spawning
             local pid
@@ -774,27 +923,68 @@ Output as numbered list with [CODING] or [REASONING] prefix for each subtask."
             pids+=("$pid")
         else
             # Standard spawning
-            spawn_agent "$agent" "$subtask" "$task_id" "$role" "tangle" &
-            pids+=($!)
+            local pid
+            pid=$(spawn_agent_capture_pid "$agent" "$subtask" "$task_id" "$role" "tangle")
+            pids+=("$pid")
         fi
+        task_ids+=("$task_id")
         ((subtask_num++)) || true
     done <<< "$subtasks"
+    fleet_dispatch_end
 
     log INFO "Spawned $subtask_num development threads"
 
-    # Wait with progress monitoring
+    # Wait with progress monitoring — poll .done marker files written by spawn_agent
+    # rather than kill -0 $pid (which tracks wrapper PID, not provider PID)
+    local _done_dir="${WORKSPACE_DIR:-${HOME}/.claude-octopus}/.octo/agents"
+    local _tangle_max_wait="${OCTOPUS_TANGLE_DEADLINE:-$(( ${TIMEOUT:-600} + 60 ))}"
+    [[ "$_tangle_max_wait" =~ ^[0-9]+$ ]] || _tangle_max_wait=$(( ${TIMEOUT:-600} + 60 ))
+    local _deadline=$(( $(date +%s) + _tangle_max_wait ))
     local completed=0
-    while [[ $completed -lt ${#pids[@]} ]]; do
+    local _failed_tasks=()
+    while [[ $completed -lt ${#task_ids[@]} ]]; do
         completed=0
-        for pid in "${pids[@]}"; do
-            if ! kill -0 "$pid" 2>/dev/null; then
+        for i in "${!task_ids[@]}"; do
+            local _done_file="${_done_dir}/${task_ids[$i]}.done"
+            if [[ -f "$_done_file" ]]; then
                 ((completed++)) || true
+            elif (( $(date +%s) > _deadline )); then
+                log WARN "Thread ${task_ids[$i]} deadline exceeded — killing and marking timeout"
+                local _wrapper_pid="${pids[$i]:-}"
+                if [[ -n "$_wrapper_pid" ]]; then
+                    pkill -TERM -P "$_wrapper_pid" 2>/dev/null || true
+                    kill -TERM "$_wrapper_pid" 2>/dev/null || true
+                    sleep 1
+                    pkill -KILL -P "$_wrapper_pid" 2>/dev/null || true
+                    kill -KILL "$_wrapper_pid" 2>/dev/null || true
+                fi
+                mkdir -p "$_done_dir" 2>/dev/null || true
+                if [[ ! -f "$_done_file" ]] && ! echo "timeout" > "$_done_file" 2>/dev/null; then
+                    log WARN "Failed to write timeout marker for ${task_ids[$i]} at $_done_file"
+                fi
             fi
         done
-        echo -ne "\r${CYAN}Progress: $completed/${#pids[@]} subtasks complete${NC}"
+        echo -ne "\r${CYAN}Progress: $completed/${#task_ids[@]} subtasks complete${NC}"
         sleep 2
     done
     echo ""
+
+    # Report any failed subtasks
+    for i in "${!task_ids[@]}"; do
+        local _done_file="${_done_dir}/${task_ids[$i]}.done"
+        local _exit_val
+        _exit_val=$(cat "$_done_file" 2>/dev/null || echo "unknown")
+        if [[ "$_exit_val" != "0" ]]; then
+            log WARN "Subtask ${task_ids[$i]} finished with status: $_exit_val"
+            _failed_tasks+=("${task_ids[$i]}")
+        fi
+    done
+    [[ ${#_failed_tasks[@]} -gt 0 ]] && log WARN "${#_failed_tasks[@]}/${#task_ids[@]} subtasks failed: ${_failed_tasks[*]}"
+
+    # Cleanup done markers
+    for i in "${!task_ids[@]}"; do
+        rm -f "${_done_dir}/${task_ids[$i]}.done" 2>/dev/null || true
+    done
 
     # Cleanup tmux if enabled
     if [[ "$TMUX_MODE" == "true" ]]; then
@@ -808,7 +998,7 @@ Output as numbered list with [CODING] or [REASONING] prefix for each subtask."
 
     # Step 3: Validation gate
     log INFO "Step 3: Validation gate..."
-    validate_tangle_results "$task_group" "$prompt"
+    validate_tangle_results "$task_group" "$resolved_prompt"
 }
 
 # Phase 4: INK (Deliver) - Quality gates + final output
@@ -1004,111 +1194,18 @@ format_workflow_banner() {
     local description="$2"
     local phase_emoji="${3:-🐙}"
 
-    # Local auth helpers — use dedicated is_available() functions when loaded,
-    # otherwise fall back to the same auth chain they implement.
-    _banner_copilot_ready() {
-        command -v copilot &>/dev/null || return 1
-        if declare -f copilot_is_available &>/dev/null; then
-            copilot_is_available 2>/dev/null
-        else
-            [[ -n "${COPILOT_GITHUB_TOKEN:-}" ]] || [[ -n "${GH_TOKEN:-}" ]] || \
-            [[ -n "${GITHUB_TOKEN:-}" ]] || [[ -f "${HOME}/.copilot/config.json" ]] || \
-            { command -v gh &>/dev/null && gh auth status &>/dev/null 2>&1; }
-        fi
-    }
-    _banner_qwen_ready() {
-        command -v qwen &>/dev/null || return 1
-        if declare -f qwen_is_available &>/dev/null; then
-            qwen_is_available 2>/dev/null
-        else
-            [[ -f "${HOME}/.qwen/oauth_creds.json" ]] || [[ -f "${HOME}/.qwen/config.json" ]] || \
-            [[ -n "${QWEN_API_KEY:-}" ]]
-        fi
-    }
-
-    # Determine provider roles based on workflow type
-    local codex_role gemini_role claude_role
-    local workflow_lower
-    workflow_lower=$(printf '%s %s' "$workflow" "$description" | tr '[:upper:]' '[:lower:]')
-    if [[ "$workflow_lower" =~ (research|discover|probe|explore) ]]; then
-        codex_role="Technical implementation analysis"
-        gemini_role="Ecosystem and community research"
-        claude_role="Strategic synthesis"
-    elif [[ "$workflow_lower" =~ (define|grasp|spec|scope) ]]; then
-        codex_role="Problem scoping and constraints"
-        gemini_role="Requirements and success criteria"
-        claude_role="Consensus building"
-    elif [[ "$workflow_lower" =~ (develop|build|tangle|implement) ]]; then
-        codex_role="Code generation and patterns"
-        gemini_role="Alternative approaches and validation"
-        claude_role="Integration and quality gates"
-    elif [[ "$workflow_lower" =~ (deliver|review|ink|audit) ]]; then
-        codex_role="Code quality analysis"
-        gemini_role="Security and edge cases"
-        claude_role="Synthesis and recommendations"
-    elif [[ "$workflow_lower" =~ debate ]]; then
-        codex_role="Technical perspective"
-        gemini_role="Ecosystem perspective"
-        claude_role="Moderator and synthesis"
-    else
-        codex_role="Code generation and analysis"
-        gemini_role="Research and alternative perspectives"
-        claude_role="Orchestration and synthesis"
-    fi
-
     if [[ "$OCTOPUS_COMPACT_BANNERS" == "true" ]]; then
-        # Compact: 1 line with active provider indicators
+        # Compact: 2 lines
         local providers=""
         command -v codex &>/dev/null && providers+="🔴"
         command -v gemini &>/dev/null && providers+="🟡"
         [[ -n "${PERPLEXITY_API_KEY:-}" ]] && providers+="🟣"
         providers+="🔵"
-        _banner_copilot_ready 2>/dev/null && providers+="🟢" || true
-        _banner_qwen_ready 2>/dev/null && providers+="🟤" || true
-        # OpenCode (⚫) — multi-provider router
-        command -v opencode &>/dev/null && providers+="⚫" || true
         echo "🐙 ${workflow} — ${description} | ${providers}"
     else
-        # Full: activation header with provider listing and roles
+        # Full: standard verbose banner (existing behavior, unchanged)
         echo "🐙 **CLAUDE OCTOPUS ACTIVATED** - ${workflow}"
         echo "${phase_emoji} ${description}"
-        echo ""
-        echo "Providers:"
-        # Core providers — show role when available, skip notice when not
-        if command -v codex &>/dev/null; then
-            echo "🔴 Codex CLI - ${codex_role}"
-        else
-            echo "🔴 Codex CLI (skipping — not installed)"
-        fi
-        if command -v gemini &>/dev/null; then
-            echo "🟡 Gemini CLI - ${gemini_role}"
-        else
-            echo "🟡 Gemini CLI (skipping — not installed)"
-        fi
-        if [[ -n "${PERPLEXITY_API_KEY:-}" ]]; then
-            echo "🟣 Perplexity - Real-time web search"
-        else
-            echo "🟣 Perplexity (skipping — PERPLEXITY_API_KEY not set)"
-        fi
-        echo "🔵 Claude - ${claude_role}"
-        # Optional providers — only shown when installed
-        if command -v copilot &>/dev/null; then
-            if _banner_copilot_ready 2>/dev/null; then
-                echo "🟢 Copilot - GitHub-aware code analysis (subscription)"
-            else
-                echo "🟢 Copilot (skipping — authentication required, run: copilot login)"
-            fi
-        fi
-        if command -v qwen &>/dev/null; then
-            if _banner_qwen_ready 2>/dev/null; then
-                echo "🟤 Qwen - Alternative AI perspective (free tier)"
-            else
-                echo "🟤 Qwen (skipping — authentication required, run: qwen)"
-            fi
-        fi
-        if command -v opencode &>/dev/null; then
-            echo "🟤 OpenCode - Multi-provider routing"
-        fi
     fi
 }
 

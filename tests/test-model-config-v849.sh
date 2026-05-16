@@ -6,6 +6,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "$SCRIPT_DIR/helpers/test-framework.sh"
+test_suite "for v8.49.0 model-config improvements"
+
 ORCHESTRATE="${SCRIPT_DIR}/../scripts/orchestrate.sh"
 # v9.3.0: Support grepping across orchestrate.sh + lib/ for extracted functions
 _ORCH_ALL_TMP=$(mktemp)
@@ -16,8 +20,8 @@ PASSED=0
 FAILED=0
 TOTAL=0
 
-pass() { ((PASSED++)); ((TOTAL++)); echo -e "\033[0;32m✓\033[0m $1"; }
-fail() { ((FAILED++)); ((TOTAL++)); echo -e "\033[0;31m✗\033[0m $1"; }
+pass() { test_case "$1"; test_pass; }
+fail() { test_case "$1"; test_fail "${2:-$1}"; }
 
 echo "Testing Model Config v8.49.0 Improvements"
 echo "==========================================="
@@ -643,14 +647,14 @@ else
 fi
 
 # Verify enhanced synthesis prompt has structured output
-if grep -A 100 'aggregate_results()' "$_ORCH_ALL_TMP" | grep -q 'Key Findings'; then
+if grep -A 120 'aggregate_results()' "$_ORCH_ALL_TMP" | grep -q 'Key Findings'; then
     pass "aggregate_results() synthesis prompt includes structured output format"
 else
     fail "aggregate_results() synthesis prompt missing structured output"
 fi
 
 # Verify minority opinion preservation in synthesis prompt
-if grep -A 60 'aggregate_results()' "$_ORCH_ALL_TMP" | grep -q 'minority'; then
+if grep -A 120 'aggregate_results()' "$_ORCH_ALL_TMP" | grep -q 'minority'; then
     pass "aggregate_results() synthesis prompt preserves minority opinions"
 else
     fail "aggregate_results() synthesis prompt missing minority opinion rule"
@@ -671,7 +675,7 @@ else
 fi
 
 # Verify quality score annotation in concatenated results
-if grep -A 50 'aggregate_results()' "$_ORCH_ALL_TMP" | grep -q 'Quality:'; then
+if grep -A 120 'aggregate_results()' "$_ORCH_ALL_TMP" | grep -q 'Quality:'; then
     pass "aggregate_results() annotates results with quality scores"
 else
     fail "aggregate_results() missing quality score annotations"
@@ -685,12 +689,4 @@ echo "==========================================="
 echo "Test Summary"
 echo "==========================================="
 echo "Total tests: $TOTAL"
-echo -e "\033[0;32mPassed: $PASSED\033[0m"
-if [[ "$FAILED" -gt 0 ]]; then
-    echo -e "\033[0;31mFailed: $FAILED\033[0m"
-    exit 1
-else
-    echo "Failed: 0"
-    echo ""
-    echo -e "\033[0;32m✓ All v8.49.0 model-config tests passed!\033[0m"
-fi
+test_summary

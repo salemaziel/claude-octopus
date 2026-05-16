@@ -4,13 +4,13 @@
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+source "$SCRIPT_DIR/helpers/test-framework.sh"
+test_suite "resolve_octopus_model (v3.0 refactor)"
+
 PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
 ORCHESTRATE_SH="${PLUGIN_DIR}/scripts/orchestrate.sh"
 
-# Colors
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m'
 
 echo "Testing resolve_octopus_model (v3.0)"
 echo "======================================"
@@ -29,11 +29,13 @@ export HOME="$CLAUDE_OCTOPUS_WORKSPACE"
 log() { :; }
 export -f log
 
-# Source orchestrate.sh
-# We need to be careful as sourcing orchestrate.sh might try to do things
-# Let's mock some other things it might need
+# Source only the minimal files needed for resolve_octopus_model.
+# Sourcing the full orchestrate.sh can hang on VPS environments due to
+# provider detection, version checks, and heavy initialization code.
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR"
-source "$ORCHESTRATE_SH" || true
+export CLAUDE_CODE_SESSION=""
+export SUPPORTS_OPUS_4_7="${SUPPORTS_OPUS_4_7:-false}"
+source "${PLUGIN_DIR}/scripts/lib/model-resolver.sh"
 
 TESTS_RUN=0
 TESTS_PASSED=0
@@ -162,7 +164,4 @@ assert_eq "$(resolve_octopus_model "codex" "codex")" "session-override" "Session
 # Cleanup
 export HOME="$HOME_ORIG"
 rm -rf "$CLAUDE_OCTOPUS_WORKSPACE"
-
-echo ""
-echo "Summary: $TESTS_PASSED/$TESTS_RUN tests passed"
-echo "All tests passed!"
+test_summary

@@ -1,3 +1,303 @@
+# Changelog
+
+## [9.38.0] - 2026-05-15
+
+### Changed
+
+- Ship marketplace install repair, workflow dispatch fixes, tangle watchdog hardening, and command packaging cleanup
+
+---
+
+## [9.37.4] - 2026-05-13
+
+### Added
+
+- Add `OCTO_ALLOWED_PROVIDERS` so users can restrict Octopus provider checks and fleet fanout to an explicit provider set (#370).
+- Add a read-only GitHub work queue hook that periodically surfaces open Octopus issues and PRs while working in the repo.
+
+### Fixed
+
+- Prevent the stable `~/.claude-octopus/plugin` self-heal path from recreating the plugin symlink as a self-referential loop (#371).
+- Update release validation to understand directory-based plugin skill registrations.
+
+---
+
+## [Unreleased]
+
+---
+
+## [9.37.3] - 2026-05-11
+
+### Fixed
+
+- Sync the README version badge with the released plugin version so release validation passes after the #367 skill-path fix.
+
+---
+
+## [9.37.2] - 2026-05-10
+
+### Fixed
+
+- Migrate all 53 skill paths in `plugin.json` from `.claude/skills/*.md` flat files to `./skills/*/` directory format, fixing skill loading failures (#366, #367).
+- Fix `claude-mem-bridge.sh` port discovery: read from `~/.claude-mem/settings.json`, fall back to UID-based formula (`37700 + uid%100`) on Linux/macOS, keep `37777` for Windows Git Bash (#363).
+- Update `test-docs-sync.sh` and `test-debate-skill.sh` to validate directory-based skill registration.
+
+---
+
+## [9.37.1] - 2026-05-08
+
+### Fixed
+
+- Resolve the installed Octopus plugin root in `/octo:doctor` before invoking scripts so Windows Git Bash installs do not depend on `~/.claude-octopus/plugin` symlink creation (#360).
+- Skip RTK hook remediation warnings on Windows Git Bash, where RTK uses CLAUDE.md injection mode instead of the macOS/Linux hook path (#361).
+
+---
+
+## [9.37.0] - 2026-05-08
+
+### Added
+
+- Add provider-aware prompt-size preflight with summarize, truncate, and fail strategies plus oversize run telemetry for multi-provider dispatch.
+- Add per-agent status ledgers and visible agent summary tables so multi-LLM workflows show ok, degraded, failed, and timeout providers before synthesis.
+- Add research breadth routing for light, standard, and exhaustive fanout with status-aware synthesis attribution.
+
+### Changed
+
+- Strengthen `/octo:research` and Discover guidance to build dynamic multi-provider fleets across Codex, Gemini, Copilot, Qwen, OpenCode, Ollama, Perplexity, OpenRouter, Cursor Agent, and Claude.
+- Promote named option and comparison prompts to debate so substantial "A or B" decisions route through multi-model scoring instead of plain chat.
+- Regenerate Claude, Codex, OpenClaw, and Factory surfaces, including the generated `octo-discipline` command.
+
+### Fixed
+
+- Route setup/configure aliases and mistyped `/octo:*` commands to canonical commands with fuzzy suggestions.
+- Skip failed or rejected provider outputs during aggregation while preserving visible failure reasons in summaries.
+- Surface oversize provider rejections instead of allowing empty outputs to look like successful provider contributions.
+
+---
+
+## [9.36.1] - 2026-05-07
+
+### Added
+
+- Sync Claude Code v2.1.132 Bash session ID support with `SUPPORTS_BASH_SESSION_ID_ENV`, `/octo:doctor` guidance, and a shared session resolver that prefers `CLAUDE_CODE_SESSION_ID` for Claude Code subprocess state.
+- Add a plugin assembly standard and dependency-free validator for skills, agents, commands, connector metadata, and manifest structure, informed by Anthropic's newer multi-plugin packaging patterns.
+- Add portable root Codex skills with per-skill OpenAI interface metadata and a Codex host adapter block.
+
+### Changed
+
+- Use Claude Code's official Bash `CLAUDE_CODE_SESSION_ID` for careful/freeze/guard state files, proof packets, cost tracking, statusline/HUD context, and compression analytics while preserving Codex/Gemini host-specific session fallbacks.
+- Point the Codex manifest at the portable root `skills/` tree and remove Claude-only hook references from the Codex package surface.
+- Preserve Claude command and skill registration while adapting generated Codex skill wording for runtime provider availability.
+
+### Fixed
+
+- Preserve the released `skill-verify` Codex skill name as a compatibility alias for the new verification gate source skill.
+
+---
+
+## [9.36.0] - 2026-05-06
+
+### Added
+
+- Sync Claude Code compatibility flags through v2.1.131, including plugin zip/URL loading, skillOverrides, gateway model discovery opt-in, MCP workspace diagnostics, init.plugin_errors, and package-manager auto-update guidance.
+- Add `/octo:doctor` checks for modern Claude Code features that Octopus can use or should warn about, including reserved MCP server names, experimental manifest key placement, gateway model discovery, and skillOverrides.
+- Add release validation for packaged plugin zip support and optional runtime smoke tests using `--plugin-dir` and `--plugin-url`.
+- Document the v2.1.14 minimum runtime, modern `/octo:doctor` compatibility checks, gateway model discovery opt-in, skillOverrides guidance, and the opt-in zip/plugin-url release smoke workflow.
+
+### Fixed
+
+- Treat Claude Code v2.1.131 as newer than the v2.1.14 minimum by using the explicit `>=` version comparison operator in the version preflight.
+
+---
+
+## [9.35.0] - 2026-05-05
+
+### Added
+
+- Add local proof packets for `/octo:review`, including JSONL evidence, findings artifacts, provider substitution records, and a markdown summary under `~/.claude-octopus/runs/`.
+- Add optional Graphify companion detection and passive `/octo:review` context injection from existing `graphify-out/GRAPH_REPORT.md` files.
+
+---
+
+## [9.34.0] - 2026-05-05
+
+### Added
+
+- Claude Code web/remote session ergonomics: remote sessions default to autonomous mode, skip provider probe calls, use a lightweight statusline, and document hosted-session setup.
+- `OCTO_TIER` project-tier hint docs for setup and doctor so Octopus can recommend verification depth and provider spend by project risk profile.
+
+---
+
+## [9.33.0] - 2026-05-05
+
+### Changed
+
+- Strengthen auto-router hooks for plain-language workflow routing.
+- Add explicit `off`, `suggest`, and `invoke` auto-router modes so users can choose whether natural-language prompts only suggest Octopus workflows or invoke them directly.
+- Add a compact SessionStart routing contract through `auto-router-inject.sh` so plain-language `debate`, `research`, and review prompts route more consistently through `/octo:*` workflows.
+- Harden hook trap tests with isolated `HOME` directories and per-hook deadlines to prevent flaky hook validation from leaking user state.
+
+---
+
+## [9.32.1] - 2026-05-05
+
+### Changed
+
+- Patch public plugin root packaging so Claude, Codex, Cursor, and Factory manifests stay version-aligned for public distribution.
+- Harden release tag safety and quiet-push handling in the release script so release automation does not fail on benign remote output.
+- Add macOS routing and root-metadata test hardening around the public plugin package.
+
+---
+
+## [9.32.0] - 2026-05-05
+
+### Added
+
+- Add round-aware PR review history for `/octo:review` and PR review flows (#322).
+- Persist per-PR review state in `scripts/lib/pr-review-state.sh` so follow-up rounds can distinguish newly introduced findings from already-reported ones.
+- Thread review history into `scripts/lib/review.sh` and command docs so repeat reviews can focus on deltas instead of restating the same findings.
+- Add unit coverage for PR review state storage and review-history integration.
+
+---
+
+## [9.31.0] - 2026-05-05
+
+### Fixed
+
+- Stream Gemini stderr in real time so failed subprocess output is visible immediately (#341).
+- Preserve provider env lookup and quota watcher cleanup under `set -e`, including shared quota watcher helpers and targeted PID cleanup (#337, #342).
+- Keep `/octo:develop` on the orchestrator path without recursive Skill calls or Claude-side parallel implementation, while preserving resolved `.md` plan prompts through fallback validation (#334, #339, #343).
+- Parse `probe-single --output-dir` correctly and replace placeholder `/path/to/orchestrate.sh` docs with real plugin path resolution (#345, closes #340, closes #344).
+
+### Changed
+
+- Wire `routing.features.review`, `routing.features.parallel`, and `routing.features.debate` into their runtime consumers with shared provider-to-agent routing and unique debate labels (#346).
+- Keep Claude and Codex install docs aligned with the shared `nyldn-plugins` marketplace flow (#335).
+
+---
+
+## [9.30.0] - 2026-04-29
+
+### Added
+
+- Add Cursor Agent CLI provider support from PR #281, including provider detection, auth checks, model resolution, fleet construction, dispatch integration, and smoke tests.
+- Add `scripts/lib/cursor-agent.sh` and focused unit coverage for cursor-agent provider behavior.
+
+### Fixed
+
+- Harden remaining async PID call sites and audit result handling so async workflows do not report stale or missing process state.
+- Ensure the plugin symlink exists before the first command runs, closing #318.
+- Tighten cursor-agent auth parsing around `cli-config.json` and `authInfo` detection.
+
+### Changed
+
+- Make version-advisory tests release-agnostic and address release-review feedback.
+
+---
+
+## [9.29.3] - 2026-04-28
+
+### Changed
+
+- Fix Windows provider env paths and async PID tracking
+
+---
+
+## [9.29.2] - 2026-04-23
+
+### Changed
+
+- Fix: add --skip-git-repo-check to all codex exec invocations (#319)
+
+---
+
+## [9.29.1] - 2026-04-22
+
+### Changed
+
+- Patch bundle: perplexity stdin + nested-JSON fix (#307/#310), v9.29 migration advisory + write-intent guardrail (#312), hook hardening eliminating silent failures (#313/#314), model-config banner fix (#301/#302), cache byte-format env compat.
+
+---
+
+## [9.29.0] - 2026-04-22
+
+### Changed
+
+- **Role default refresh based on April 2026 benchmarks**: `architect`, `strategist`, and new `security-reviewer` role now default to Claude Opus 4.7 (SWE-bench Pro 64.3 vs 57.7, MCP-Atlas tool use +9.2, LMArena #1). `code-reviewer` and `implementer` stay on GPT-5.4 (Terminal-Bench 75.1, edge-case review). `reviewer` is preserved as an alias for `code-reviewer`.
+- **New opt-in `implementer-heavy` role** for greenfield / large refactors / UI-heavy builds — routes to Claude Opus 4.7. Not auto-selected; callers must request it explicitly.
+- **New `plugin/docs/GPT-5.4-PROMPTING.md`** — condensed OpenAI prompt guidance (reasoning effort tiers, output contracts, tool persistence, `phase` field, `gpt-5.4-mini` patterns). Referenced from Codex dispatchers and code-reviewer persona.
+- **Migration prompt** in `/octo:setup` fires once for users upgrading from ≤9.28: explains the routing change, surfaces the Opus 4.7 cost impact (~2x GPT-5.4), offers `OCTOPUS_LEGACY_ROLES=1` opt-out to restore v9.28 mapping.
+
+### Opt-out
+
+Set `OCTOPUS_LEGACY_ROLES=1` to restore the v9.28 role mapping verbatim.
+
+---
+
+## [9.28.0] - 2026-04-22
+
+### Changed
+
+- QA hardening, perplexity stdin fix (#305), review timeout scaling (#303), macOS compat, dead code removal
+
+---
+
+## [9.27.0] - 2026-04-21
+
+### Fixed
+- **fix(probe):** port awk-header-guard from `spawn_agent` to `probe_single_agent` — codex output was silently empty in `/octo:discover` and all probe-based skills (#300)
+- **fix(perplexity):** remove `env -i` wrapper for shell-function providers (perplexity, openrouter) — `env` cannot exec bash functions, causing exit 127 (#300)
+
+## [9.26.0] - 2026-04-21
+
+### Fixed
+- **fix(dispatch):** `claude-opus` xhigh effort dispatch broke `read -ra` word splitting — bare `CLAUDE_CODE_EFFORT_LEVEL=xhigh` prefix treated as binary name by `timeout`; wrapped with `env` (#289 follow-up)
+- **fix(qwen):** remove invalid `--no-ask-user` flag from `qwen.sh` — Copilot CLI cross-contamination (#279)
+- **fix(agents):** add `tools: ["All tools"]` to all 10 droids and `python-pro` persona — subagents silently lost file/bash access (#298 BUG-001, BUG-002)
+- **fix(skill-extract):** description now notes beta status for unimplemented features (#298 BUG-003)
+- **fix(hooks):** `user-prompt-submit.sh` falls back to `jq` when `python3` is absent (#298 BUG-004)
+- **fix(security):** `telemetry-webhook.sh` rejects non-HTTPS webhook URLs, localhost exempted (#298 FINDING-03)
+
+## [9.25.0] - 2026-04-20
+
+### Fixed
+
+- **Progress counter drift for Agent Teams dispatch** (#276 item 7) — `subagent-result-capture.sh` (SubagentStop hook) now increments `completed_agents` in `progress.json` directly after writing the result file. Previously the Agent Teams path returned without calling `update_agent_status`, so the counter lagged behind the actual number of completed agents.
+- **Fork PRs silently 403 on review comment post** (#276 item 2) — `pr-review` job in `claude-octopus.yml` now guards with `github.event.pull_request.head.repo.full_name == github.repository`. Fork PRs have no access to secrets and a read-only `GITHUB_TOKEN`; they see CodeRabbit review instead.
+
+### Changed
+
+- **95 legacy test files migrated to `test-framework.sh`** (#276 item 3) — all test files now use the shared framework for consistent output formatting, unified pass/fail tracking, and a single summary block. No test logic was changed.
+
+---
+
+## [9.24.0] - 2026-04-19
+
+### Fixed
+
+- **`/octo:review` Round 1 silent timeout** (#289) — `review_run()` was missing the `OCTOPUS_FORCE_LEGACY_DISPATCH` guard that the probe phase already had. When `orchestrate.sh` runs as a Bash tool subprocess, Agent Teams `AGENT_TEAMS_DISPATCH:` signals are never consumed by the host, leaving all result files empty and causing a 300s "ALL Round 1 providers failed" timeout. All parallel fleet spawn sites (`review_run`, `tangle_execute`, `yaml_workflow_execute`) now use `fleet_dispatch_begin/end` helpers instead of raw `export`/`unset`.
+- **`--bare` flag breaks subprocess auth** (#288) — CC v2.1.114 regression where `claude --bare --print` exits 0 but emits "Not logged in", silently poisoning every Claude agent dispatch. `providers.sh` now probes `--bare` auth at detection time and disables it when broken. `doctor.sh` reports the failure with a clear remediation (`OCTOPUS_DISABLE_BARE=1`).
+- **`discipline-inject.sh` never fires** (#288) — the second `SessionStart` hook block in `.claude-plugin/hooks.json` was missing `"matcher": {}`. CC's hook dispatcher silently dropped it. Also fixed the same omission in `StopFailure`, `CwdChanged`, `TaskCreated`, and `PermissionDenied` hook blocks.
+- **`cursor-agent` fallback/config gaps** (#282–#287) — cursor-agent was missing from three dispatch locations added in the v9.23.0 provider expansion: `find_capable_fallback()` in `dispatch.sh` (models: composer-2-fast, composer-2, grok-4-20, grok-4-20-thinking), `set_provider_model`/`reset_provider_model` whitelists in `provider-routing.sh`, and `build_architecture_fleet()` in `build-fleet.sh`.
+- **Factory Droid install command** (#277) — README had `octo@claude-octopus` (wrong namespace) and a bare URL without `.git`. Corrected to `octo@nyldn-plugins` with `.git` suffix, matching the Claude Code install path.
+- **`((VAR++))` silent test abort under `set -e`** (#276) — postfix increment evaluates to `0` when `VAR=0`, causing bash `set -e` to abort 15 test files before any assertions run. Applied `|| true` guard across all affected files.
+- **BSD `sed` range with command grouping** (#276) — `build-factory-skills.sh` used GNU-only `sed -n '/pat/,/pat/{...}'` syntax that fails on macOS/BSD `sed`. Replaced with portable `awk` state machine.
+
+### Added
+
+- **Fleet dispatch guard helpers** — `fleet_dispatch_begin()` / `fleet_dispatch_end()` in `agent-sync.sh` wrap all parallel fleet spawn loops. Replaces the copy-paste `export OCTOPUS_FORCE_LEGACY_DISPATCH=true` pattern. A new smoke test (`tests/smoke/test-fleet-dispatch-guard.sh`) statically enforces that all fleet call sites use the helpers and that all `hooks.json` blocks have a `"matcher"` key — prevents regression of #288/#289.
+
+### Removed
+
+- **`scripts/lib/resilience.sh`** (176 LOC) and **`scripts/lib/run-store.sh`** (154 LOC) — never sourced by any production code path; only referenced by their own unit tests. Removed from shipped bundle.
+- **`scripts/test-claude-octopus.sh`** (1,889 LOC) — orphaned legacy test runner superseded by `tests/` structure; was shipping to users via `"scripts/"` in `package.json`.
+
+### Changed
+
+- `debate.sh`, `auto-route.sh`, and `audit.sh` are now lazy-loaded in `orchestrate.sh` — sourced only inside the dispatch branches that need them (`grapple`, `auto`/`optimize`, `review`/`audit`) rather than unconditionally on every hook invocation.
+
+---
+
 ## [9.23.0] - 2026-04-17
 
 ### Added
