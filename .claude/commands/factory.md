@@ -1,6 +1,6 @@
 ---
 command: factory
-description: "Dark Factory Mode - Spec-in, software-out autonomous pipeline"
+description: "[advanced] Dark Factory Mode - Spec-in, software-out autonomous pipeline"
 aliases:
   - dark-factory
   - build-from-spec
@@ -9,6 +9,10 @@ aliases:
 # Factory - Dark Factory Mode (v8.25.0)
 
 ## INSTRUCTIONS FOR CLAUDE
+
+### MANDATORY COMPLIANCE — DO NOT SKIP
+
+**When the user explicitly invokes `/octo:factory`, you MUST execute the orchestrated factory pipeline below.** You are PROHIBITED from replacing the pipeline with a direct Claude-only implementation.
 
 When the user invokes this command (e.g., `/octo:factory --spec <path>`):
 
@@ -22,6 +26,22 @@ Ask 3 clarifying questions:
 3. Cost confirmation — Factory mode runs ~20-30 agent calls (~$0.50-2.00). Proceed? (Yes / Yes with --ci for non-interactive / No)
 
 After receiving answers: validate spec path exists, set overrides, proceed.
+
+### Step 1.5: Ensure plugin root is resolvable (run via Bash tool)
+
+```bash
+OCTO_ROOT="${HOME}/.claude-octopus/plugin"
+if [[ ! -x "$OCTO_ROOT/scripts/orchestrate.sh" ]]; then
+  helper="$OCTO_ROOT/scripts/helpers/ensure-plugin-root.sh"
+  if [[ ! -x "$helper" ]]; then
+    helper="$(find "${HOME}/.claude/plugins/cache" "${HOME}/Library/Application Support/Claude" "${LOCALAPPDATA:-/dev/null}/Claude" "${XDG_DATA_HOME:-${HOME}/.local/share}/Claude" -maxdepth 8 -path "*/nyldn-plugins/octo/*/scripts/helpers/ensure-plugin-root.sh" -print -quit 2>/dev/null)"
+  fi
+  [[ -x "$helper" ]] && bash "$helper" >/dev/null 2>&1 || true
+fi
+test -x "$OCTO_ROOT/scripts/orchestrate.sh" && echo "plugin-root:ok" || echo "plugin-root:missing"
+```
+
+If the output is `plugin-root:missing`, stop and ask the user to run `/octo:setup`.
 
 ### Step 2: Check Provider Availability & Display Banner
 

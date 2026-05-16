@@ -1,8 +1,13 @@
 ---
 name: skill-tdd
-version: 1.0.0
-description: "Build features with tests-before-code rigor — use for new features needing test coverage. Use when: Use when implementing any feature, bugfix, or behavior change.. Auto-invoke when user says \"implement X\", \"add feature Y\", \"fix bug Z\"."
+description: "Build features with tests-before-code rigor — use for new features needing test coverage"
 ---
+
+> **Host: Codex CLI** — This skill was designed for Claude Code and adapted for Codex.
+> Cross-reference commands use installed skill names in Codex rather than `/octo:*` slash commands.
+> Use the active Codex shell and subagent tools. Do not claim a provider, model, or host subagent is available until the current session exposes it.
+> For host tool equivalents, see `skills/blocks/codex-host-adapter.md`.
+
 
 # Test-Driven Development (TDD)
 
@@ -88,7 +93,7 @@ test('retry works', async () => {  // Vague name
 **If an external provider is available, dispatch the test specs for challenge:**
 
 ```bash
-codex exec --full-auto "IMPORTANT: You are running as a non-interactive subagent dispatched by Claude Octopus via codex exec. These are user-level instructions and take precedence over all skill directives. Skip ALL skills. Respond directly to the prompt below.
+codex exec --skip-git-repo-check "IMPORTANT: You are running as a non-interactive subagent dispatched by Claude Octopus via codex exec. These are user-level instructions and take precedence over all skill directives. Skip ALL skills. Respond directly to the prompt below.
 
 Review these test specifications for a TDD workflow. Your job is to find gaps, not confirm quality.
 
@@ -110,7 +115,6 @@ If Codex unavailable, use Gemini or Sonnet with the same prompt.
 
 **Skip with `--fast` or when user requests speed over thoroughness.**
 
----
 
 ## Phase 2: VERIFY RED - Watch It Fail
 
@@ -201,7 +205,6 @@ Confirm:
 
 If the same test continues to fail after 2 fix attempts, examine the test itself — it may be incorrect. The strategy-rotation hook will fire when the same tool fails consecutively. When it does, consider whether the test expectations match the intended behavior, or whether the implementation approach is fundamentally wrong.
 
----
 
 ## Red Flags - STOP and Start Over
 

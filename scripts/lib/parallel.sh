@@ -12,20 +12,62 @@
 # Extracted from orchestrate.sh (v9.7.8)
 # Source-safe: no main execution block.
 
+# _fan_out_agents_from_config (v9.31.0): read .routing.features.parallel from
+# providers.json. /octo:model-config wizard writes this array under "Parallel
+# execution providers"; before this change there was no consumer.
+# Output: one agent_type per line. Empty when config absent/empty/missing.
+_fan_out_agents_from_config() {
+    local feature="${1:-parallel}"
+    local breadth="${OCTOPUS_FANOUT_BREADTH:-${OCTOPUS_RESEARCH_BREADTH:-}}"
+    local config_file="${HOME}/.claude-octopus/config/providers.json"
+    [[ ! -f "$config_file" ]] && return 0
+    command -v jq >/dev/null 2>&1 || return 0
+
+    jq -r --arg feature "$feature" --arg breadth "$breadth" '
+        if $feature == "research" and $breadth != "" then
+            (.routing.features.research_breadth[$breadth] // .routing.features.research // .routing.features.parallel // [])
+        else
+            (.routing.features[$feature] // .routing.features.parallel // [])
+        end
+        | if type == "array" then .[] else empty end
+    ' "$config_file" 2>/dev/null || true
+}
+
 fan_out() {
     local prompt="$1"
-    local agents=("codex" "gemini")
+    local agents=()
     local pids=()
     local task_group
     task_group=$(date +%s)
 
-    log INFO "Fan-out: Sending prompt to ${#agents[@]} agents"
+    # v9.31.0: honor wizard-configured participants if present
+    local _configured
+    _configured=$(_fan_out_agents_from_config "${OCTOPUS_FANOUT_FEATURE:-parallel}")
+    if [[ -n "$_configured" ]]; then
+        while IFS= read -r _a; do
+            [[ -z "$_a" ]] && continue
+            local _resolved
+            if _resolved=$(resolve_provider_to_agent "$_a"); then
+                agents+=("$_resolved")
+            else
+                log WARN "Fan-out: skipping unknown agent '$_a' (not in AVAILABLE_AGENTS)"
+            fi
+        done <<< "$_configured"
+    fi
+
+    # Fallback to original default pair when config absent or all entries invalid
+    [[ ${#agents[@]} -eq 0 ]] && agents=("codex" "gemini")
+
+    log INFO "Fan-out: Sending prompt to ${#agents[@]} agents (${agents[*]})"
     echo ""
 
     for agent in "${agents[@]}"; do
         local pid
-        pid=$(spawn_agent "$agent" "$prompt" "${task_group}-${agent}")
-        pids+=("$pid")
+        if pid=$(spawn_agent_capture_pid "$agent" "$prompt" "${task_group}-${agent}"); then
+            pids+=("$pid")
+        else
+            log WARN "Fan-out: failed to spawn $agent"
+        fi
         sleep 0.5
     done
 
@@ -36,6 +78,7 @@ fan_out() {
     echo ""
     echo -e "${CYAN}View results:${NC}"
     echo "  ls -la $RESULTS_DIR/"
+    echo "  $(basename "$0") agent-summary"
     echo ""
 }
 
@@ -157,20 +200,37 @@ parallel_execute() {
         done
 
         local pid
-        pid=$(spawn_agent "$agent" "$prompt" "$task_id")
-        pids+=("$pid")
-        ((running++)) || true
+        if pid=$(spawn_agent_capture_pid "$agent" "$prompt" "$task_id"); then
+            pids+=("$pid")
+            ((running++)) || true
+        else
+            log WARN "Skipping task $task_id: failed to spawn agent '$agent'"
+            ((skipped++)) || true
+            continue
+        fi
 
         log INFO "Progress: $completed/$task_count completed, $running running"
     done < <(jq -c '.tasks[]' "$tasks_file")
 
     log INFO "Waiting for remaining $running tasks to complete..."
-    wait
+    while [[ $running -gt 0 ]]; do
+        local saw_completion=false
+        for i in "${!pids[@]}"; do
+            if ! kill -0 "${pids[$i]}" 2>/dev/null; then
+                unset 'pids[i]'
+                ((running--)) || true
+                ((completed++)) || true
+                saw_completion=true
+            fi
+        done
+        [[ "$saw_completion" == "false" ]] && sleep 1
+    done
 
     if [[ $skipped -gt 0 ]]; then
         log WARN "Completed with $skipped skipped tasks (invalid/malformed)"
     fi
     log INFO "All $task_count tasks processed ($((task_count - skipped)) executed, $skipped skipped)"
+    type render_agent_summary >/dev/null 2>&1 && render_agent_summary
     aggregate_results
 }
 
@@ -206,6 +266,7 @@ Output as a simple numbered list. Task: $main_prompt"
     log INFO "Phase 2: Mapping subtasks to agents"
     local subtask_num=0
     local agents=("codex" "gemini")
+    local pids=()
 
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
@@ -215,14 +276,30 @@ Output as a simple numbered list. Task: $main_prompt"
         subtask=$(echo "$line" | sed 's/^[0-9]*[\.\)]\s*//')
         local agent="${agents[$((subtask_num % ${#agents[@]}))]}"
 
-        spawn_agent "$agent" "$subtask" "${task_group}-subtask-${subtask_num}"
+        local pid
+        if pid=$(spawn_agent_capture_pid "$agent" "$subtask" "${task_group}-subtask-${subtask_num}"); then
+            pids+=("$pid")
+        else
+            log WARN "Map-Reduce: failed to spawn subtask $subtask_num with $agent"
+        fi
         ((subtask_num++)) || true
     done < "$decompose_result"
 
     log INFO "Spawned $subtask_num subtask agents"
 
     log INFO "Phase 3: Waiting for subtasks to complete..."
-    wait
+    local remaining=${#pids[@]}
+    while [[ $remaining -gt 0 ]]; do
+        remaining=0
+        for i in "${!pids[@]}"; do
+            if kill -0 "${pids[$i]}" 2>/dev/null; then
+                ((remaining++)) || true
+            else
+                unset 'pids[i]'
+            fi
+        done
+        [[ $remaining -gt 0 ]] && sleep 1
+    done
 
     aggregate_results "$task_group"
 }

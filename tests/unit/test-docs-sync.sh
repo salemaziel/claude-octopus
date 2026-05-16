@@ -3,12 +3,14 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+source "$SCRIPT_DIR/../helpers/test-framework.sh"
+test_suite "Docs Sync"
+
+set +o pipefail  # restore: original did not use pipefail
+
 cd "$PROJECT_ROOT"
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
 
 # Counters
 TOTAL_TESTS=0
@@ -19,26 +21,13 @@ FAILED_TESTS=0
 declare -a FAILURES
 
 # Helper functions
-pass() {
-  echo -e "${GREEN}✓${NC} $1"
-  ((PASSED_TESTS++)) || true
-  ((TOTAL_TESTS++)) || true
-}
+pass() { test_case "$1"; test_pass; }
 
-fail() {
-  echo -e "${RED}✗${NC} $1"
-  FAILURES+=("$1")
-  ((FAILED_TESTS++)) || true
-  ((TOTAL_TESTS++)) || true
-}
+fail() { test_case "$1"; test_fail "${2:-$1}"; }
 
-warn() {
-  echo -e "${YELLOW}⚠${NC} $1"
-}
+warn() { echo "$1"; }
 
-info() {
-  echo "$1"
-}
+info() { echo "$1"; }
 
 # Extract version from plugin.json
 get_plugin_version() {
@@ -180,12 +169,13 @@ check_docs_files() {
   done
 }
 
-# Check all primary skills are registered in plugin.json (v7.5+)
+# Check all skill directories are registered in plugin.json (v9.38+)
+# Skills migrated from .claude/skills/*.md to skills/*/ directories
 check_skills_registered() {
   info "\nValidating skill registration..."
 
   local plugin_json=".claude-plugin/plugin.json"
-  local skills_dir=".claude/skills"
+  local skills_dir="skills"
 
   if [ ! -f "$plugin_json" ]; then
     fail "plugin.json not found"
@@ -197,22 +187,22 @@ check_skills_registered() {
     return 1
   fi
 
-  # v7.5+: Primary skills follow naming pattern: sys-*, flow-*, skill-*
-  # Shortcut aliases (probe.md, review.md, etc.) are NOT registered in plugin.json
-  # They're defined as aliases in the primary skill's frontmatter
+  # v9.38+: Skills are directories under skills/ containing SKILL.md
+  # plugin.json references them as ./skills/<name>
+  for skill_subdir in "$skills_dir"/*/; do
+    local skill_name=$(basename "$skill_subdir")
+    local skill_path="./skills/${skill_name}"
 
-  # Find all primary skill files (sys-*, flow-*, skill-*)
-  local skill_files=$(find "$skills_dir" -name "*.md" -type f | grep -E '(sys-|flow-|skill-).*\.md$')
-
-  while IFS= read -r skill_file; do
-    local skill_path="./.claude/skills/$(basename "$skill_file")"
-
-    if grep -q "$skill_path" "$plugin_json"; then
-      pass "Skill registered: $(basename "$skill_file")"
-    else
-      fail "Skill NOT registered in plugin.json: $(basename "$skill_file")"
+    if [ ! -f "${skill_subdir}SKILL.md" ]; then
+      continue  # Skip dirs without SKILL.md (e.g. blocks/)
     fi
-  done <<< "$skill_files"
+
+    if grep -q "\"${skill_path}\"" "$plugin_json"; then
+      pass "Skill registered: ${skill_name}"
+    else
+      fail "Skill NOT registered in plugin.json: ${skill_name}"
+    fi
+  done
 }
 
 # Check workflow skills exist (v7.5+: renamed to flow-*)
@@ -288,11 +278,11 @@ check_debate_skill() {
     fail "skill-debate.md missing YAML frontmatter (required for Claude Code)"
   fi
 
-  # Check if skill-debate.md is registered in plugin.json
-  if grep -q "./.claude/skills/skill-debate.md" ".claude-plugin/plugin.json"; then
-    pass "skill-debate.md registered in plugin.json"
+  # Check if skill-debate is registered in plugin.json (directory format)
+  if grep -q "skill-debate" ".claude-plugin/plugin.json"; then
+    pass "skill-debate registered in plugin.json"
   else
-    fail "skill-debate.md NOT registered in plugin.json"
+    fail "skill-debate NOT registered in plugin.json"
   fi
 
   # Check that shortcut alias exists
@@ -323,8 +313,17 @@ check_marketplace_version() {
   # Extract version from plugin.json
   local plugin_version=$(grep '"version"' "$plugin_json" | head -n 1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
 
-  # Extract version field from marketplace.json
-  local marketplace_version=$(grep '"version"' "$marketplace_json" | tail -n 1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+  if ! command -v jq >/dev/null 2>&1; then
+    fail "jq is required to parse marketplace.json"
+    return 1
+  fi
+
+  # Extract the octo plugin version, not marketplace metadata or sibling plugins.
+  local marketplace_version
+  if ! marketplace_version=$(jq -r '.plugins[] | select(.name == "octo") | .version // empty' "$marketplace_json"); then
+    fail "Unable to parse octo version from marketplace.json"
+    return 1
+  fi
 
   # Check if versions match
   if [ "$plugin_version" = "$marketplace_version" ]; then
@@ -338,6 +337,30 @@ check_marketplace_version() {
     pass "marketplace.json description starts with version (v${plugin_version})"
   else
     fail "marketplace.json description should start with 'v${plugin_version} - ...'"
+  fi
+}
+
+# Check release validation parses the octo marketplace entry explicitly
+check_release_validator_marketplace_parser() {
+  info "\nValidating release marketplace parser..."
+
+  local release_validator="scripts/validate-release.sh"
+
+  if [ ! -f "$release_validator" ]; then
+    fail "validate-release.sh not found"
+    return 1
+  fi
+
+  if grep -Fq '.plugins[] | select(.name == "octo") | .version' "$release_validator"; then
+    pass "validate-release.sh selects octo marketplace version explicitly"
+  else
+    fail "validate-release.sh should select octo marketplace version explicitly"
+  fi
+
+  if grep -Fq 'grep -v "1.0.0"' "$release_validator"; then
+    fail "validate-release.sh should not filter marketplace versions with grep -v 1.0.0"
+  else
+    pass "validate-release.sh does not use marketplace version heuristic filter"
   fi
 }
 
@@ -381,57 +404,34 @@ check_command_frontmatter() {
 }
 
 # Main test execution
-main() {
-  echo "================================================================"
-  echo "  Documentation Sync Validation Test Suite"
-  echo "================================================================"
-  echo
+echo "================================================================"
+echo "  Documentation Sync Validation Test Suite"
+echo "================================================================"
+echo
 
-  # Get version from plugin.json
-  VERSION=$(get_plugin_version)
-  info "Current version from plugin.json: $VERSION"
-  echo
+# Get version from plugin.json
+VERSION=$(get_plugin_version)
+info "Current version from plugin.json: $VERSION"
+echo
 
-  # Run test suites
-  check_readme_version "$VERSION"
-  check_readme_counts
-  check_changelog_version "$VERSION"
-  check_readme_structure
-  check_docs_files
-  check_skills_registered
-  check_workflow_skills
-  check_hooks_config
-  check_debate_skill
-  check_marketplace_version
-  check_command_frontmatter
+# Run test suites
+check_readme_version "$VERSION"
+check_readme_counts
+check_changelog_version "$VERSION"
+check_readme_structure
+check_docs_files
+check_skills_registered
+check_workflow_skills
+check_hooks_config
+check_debate_skill
+check_marketplace_version
+check_release_validator_marketplace_parser
+check_command_frontmatter
 
-  # Summary
-  echo
-  echo "================================================================"
-  echo "  Test Results Summary"
-  echo "================================================================"
-  echo
-  echo "Total Tests: $TOTAL_TESTS"
-  echo -e "Passed: ${GREEN}$PASSED_TESTS${NC}"
-  echo -e "Failed: ${RED}$FAILED_TESTS${NC}"
-  echo
-
-  if [ $FAILED_TESTS -gt 0 ]; then
-    echo "================================================================"
-    echo "  Failures:"
-    echo "================================================================"
-    for failure in "${FAILURES[@]}"; do
-      echo -e "${RED}✗${NC} $failure"
-    done
-    echo
-    exit 1
-  else
-    echo -e "${GREEN}All tests passed!${NC}"
-    exit 0
-  fi
-}
-
-# Run main if executed directly
-if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
-  main "$@"
-fi
+# Summary
+echo
+echo "================================================================"
+echo "  Test Results Summary"
+echo "================================================================"
+echo
+test_summary

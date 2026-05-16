@@ -7,6 +7,11 @@
 # Source-safe: no main execution block.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+if ! declare -f _is_cursor_agent_binary >/dev/null 2>&1; then
+    _providers_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${_providers_lib_dir}/cursor-agent.sh" 2>/dev/null || true
+fi
+
 # Version comparison utility
 version_compare() {
     local version1="$1"
@@ -428,6 +433,41 @@ detect_claude_code_version() {
         SUPPORTS_ULTRAREVIEW=true
     fi
 
+    # v9.36: Claude Code v2.1.126+ (gateway models, project purge, skill activation trigger telemetry)
+    if version_compare "$CLAUDE_CODE_VERSION" "2.1.126" ">="; then
+        SUPPORTS_GATEWAY_MODEL_DISCOVERY=true
+        SUPPORTS_PROJECT_PURGE=true
+        SUPPORTS_SKILL_ACTIVATED_OTEL_TRIGGER=true
+    fi
+
+    # v9.36: Claude Code v2.1.128+ (plugin zip loading, MCP diagnostics, init.plugin_errors)
+    if version_compare "$CLAUDE_CODE_VERSION" "2.1.128" ">="; then
+        SUPPORTS_PLUGIN_ZIP_DIR=true
+        SUPPORTS_MCP_TOOL_COUNTS=true
+        SUPPORTS_MCP_WORKSPACE_RESERVED=true
+        SUPPORTS_LOCAL_SETTINGS_SUGGESTIONS=true
+        SUPPORTS_SUBPROCESS_OTEL_SCRUB=true
+        SUPPORTS_INIT_PLUGIN_ERRORS=true
+        SUPPORTS_PARALLEL_SHELL_READONLY_RESILIENCE=true
+        SUPPORTS_PLUGIN_UPDATE_NPM=true
+    fi
+
+    # v9.36: Claude Code v2.1.129+ (plugin URL loading, skillOverrides, gateway discovery opt-in)
+    if version_compare "$CLAUDE_CODE_VERSION" "2.1.129" ">="; then
+        SUPPORTS_PLUGIN_URL=true
+        SUPPORTS_FORCE_SYNC_OUTPUT=true
+        SUPPORTS_PACKAGE_MANAGER_AUTO_UPDATE=true
+        SUPPORTS_EXPERIMENTAL_MANIFEST_KEYS=true
+        SUPPORTS_GATEWAY_MODEL_DISCOVERY_OPT_IN=true
+        SUPPORTS_SKILL_OVERRIDES=true
+        SUPPORTS_PR_COUNT_MCP_OTEL=true
+    fi
+
+    # v9.37: Claude Code v2.1.132+ (session ID exposed to Bash tool subprocess env)
+    if version_compare "$CLAUDE_CODE_VERSION" "2.1.132" ">="; then
+        SUPPORTS_BASH_SESSION_ID_ENV=true
+    fi
+
     log "INFO" "Claude Code v$CLAUDE_CODE_VERSION detected"
     log "INFO" "Task Management: $SUPPORTS_TASK_MANAGEMENT | Fork Context: $SUPPORTS_FORK_CONTEXT | Agent Teams: $SUPPORTS_AGENT_TEAMS"
     log "INFO" "Persistent Memory: $SUPPORTS_PERSISTENT_MEMORY | Hook Events: $SUPPORTS_HOOK_EVENTS | Agent Type Routing: $SUPPORTS_AGENT_TYPE_ROUTING"
@@ -467,6 +507,12 @@ detect_claude_code_version() {
     log "INFO" "Default Effort High: $SUPPORTS_DEFAULT_EFFORT_HIGH | Statusline Refresh Interval: $SUPPORTS_STATUSLINE_REFRESH_INTERVAL"
     log "INFO" "Exclude Dynamic Prompt: $SUPPORTS_EXCLUDE_DYNAMIC_PROMPT | Perforce Mode: $SUPPORTS_PERFORCE_MODE | Monitor Tool: $SUPPORTS_MONITOR_TOOL | Traceparent: $SUPPORTS_TRACEPARENT"
     log "INFO" "Settings Resilience: $SUPPORTS_SETTINGS_RESILIENCE | OS CA Certs: $SUPPORTS_OS_CA_CERTS | Auto Cloud Env: $SUPPORTS_AUTO_CLOUD_ENV"
+    log "INFO" "Gateway Models: $SUPPORTS_GATEWAY_MODEL_DISCOVERY | Project Purge: $SUPPORTS_PROJECT_PURGE | Skill OTel Trigger: $SUPPORTS_SKILL_ACTIVATED_OTEL_TRIGGER"
+    log "INFO" "Plugin Zip Dir: $SUPPORTS_PLUGIN_ZIP_DIR | MCP Tool Counts: $SUPPORTS_MCP_TOOL_COUNTS | MCP Workspace Reserved: $SUPPORTS_MCP_WORKSPACE_RESERVED"
+    log "INFO" "Local Settings Suggestions: $SUPPORTS_LOCAL_SETTINGS_SUGGESTIONS | Subprocess OTEL Scrub: $SUPPORTS_SUBPROCESS_OTEL_SCRUB | Init Plugin Errors: $SUPPORTS_INIT_PLUGIN_ERRORS"
+    log "INFO" "Plugin URL: $SUPPORTS_PLUGIN_URL | Force Sync Output: $SUPPORTS_FORCE_SYNC_OUTPUT | Package Manager Auto Update: $SUPPORTS_PACKAGE_MANAGER_AUTO_UPDATE"
+    log "INFO" "Experimental Manifest Keys: $SUPPORTS_EXPERIMENTAL_MANIFEST_KEYS | Gateway Discovery Opt-in: $SUPPORTS_GATEWAY_MODEL_DISCOVERY_OPT_IN | Skill Overrides: $SUPPORTS_SKILL_OVERRIDES"
+    log "INFO" "Bash Session ID Env: $SUPPORTS_BASH_SESSION_ID_ENV"
 
     # v8.29.0: Context window control
     OCTOPUS_CONTEXT_WINDOW="${OCTOPUS_CONTEXT_WINDOW:-auto}"
@@ -485,11 +531,21 @@ detect_claude_code_version() {
     fi
 
     # v9.19.0: --bare flag for subprocess synthesis (CC v2.1.87+)
-    # Skips hooks/LSP/plugin sync when running claude -p subprocesses, reducing latency
+    # Skips hooks/LSP/plugin sync when running claude -p subprocesses, reducing latency.
+    # CC v2.1.114 regression (#288): --bare breaks subprocess auth on some installs,
+    # causing "Not logged in" exits with exit code 0. Runtime-probe before enabling,
+    # and honour OCTOPUS_DISABLE_BARE=1 opt-out.
     _BARE_OPT=""
-    if [[ "$SUPPORTS_BARE_FLAG" == "true" ]]; then
-        _BARE_OPT=" --bare"
-        log "INFO" "Subprocess synthesis uses --bare flag for faster claude -p calls"
+    if [[ "$SUPPORTS_BARE_FLAG" == "true" && "${OCTOPUS_DISABLE_BARE:-0}" != "1" ]]; then
+        # Quick auth probe: pipe a trivial prompt and check for login nag
+        local _bare_probe
+        _bare_probe=$(echo "x" | claude --bare --print --model claude-haiku-4-5-20251001 2>/dev/null | head -1 || true)
+        if [[ "$_bare_probe" == *"Not logged in"* || "$_bare_probe" == *"Please run /login"* ]]; then
+            log "WARN" "--bare flag breaks subprocess auth on this install (issue #288) — disabled. Set OCTOPUS_DISABLE_BARE=1 to suppress this probe."
+        else
+            _BARE_OPT=" --bare"
+            log "INFO" "Subprocess synthesis uses --bare flag for faster claude -p calls"
+        fi
     fi
     export _BARE_OPT
 
@@ -712,6 +768,23 @@ check_provider_health() {
                 return 1
             fi
             ;;
+        cursor-agent)
+            if ! command -v agent &>/dev/null; then
+                echo "cursor-agent: CLI not found in PATH" >&2
+                return 1
+            fi
+            # Verify binary identity — `agent` is a generic name
+            if ! declare -f _is_cursor_agent_binary >/dev/null 2>&1 || ! _is_cursor_agent_binary; then
+                echo "cursor-agent: 'agent' binary is not Cursor Agent CLI" >&2
+                return 1
+            fi
+            # Check auth: env var or Cursor session (authInfo in cli-config.json)
+            if [[ -z "${CURSOR_API_KEY:-}" ]] && \
+               ! grep -Eq '"authInfo"[[:space:]]*:[[:space:]]*\{' "${HOME}/.cursor/cli-config.json" 2>/dev/null; then
+                echo "cursor-agent: not authenticated (run: agent login or set CURSOR_API_KEY)" >&2
+                return 1
+            fi
+            ;;
     esac
     return 0
 }
@@ -722,7 +795,7 @@ check_all_providers() {
     local healthy=0 unhealthy=0
     local -a results=()
 
-    for provider in codex gemini claude perplexity openrouter ollama copilot qwen; do
+    for provider in codex gemini claude perplexity openrouter ollama copilot qwen cursor-agent; do
         local diag
         if diag=$(check_provider_health "$provider" 2>&1); then
             results+=("  ✓ $provider")
@@ -924,6 +997,17 @@ detect_providers() {
             qwen_auth="api-key"
         fi
         result="${result}qwen:${qwen_auth} "
+    fi
+
+    # Detect Cursor Agent CLI (Grok via Cursor subscription)
+    if declare -f _is_cursor_agent_binary >/dev/null 2>&1 && _is_cursor_agent_binary; then
+        local cursor_auth="none"
+        if [[ -n "${CURSOR_API_KEY:-}" ]]; then
+            cursor_auth="env:CURSOR_API_KEY"
+        elif grep -Eq '"authInfo"[[:space:]]*:[[:space:]]*\{' "${HOME}/.cursor/cli-config.json" 2>/dev/null; then
+            cursor_auth="cursor-session"
+        fi
+        result="${result}cursor-agent:${cursor_auth} "
     fi
 
     # Detect OpenCode CLI (v9.11.0 — multi-provider router)

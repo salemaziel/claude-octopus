@@ -6,6 +6,22 @@
 # Extracted from orchestrate.sh — v9.7.5
 # ═══════════════════════════════════════════════════════════════════════════════
 
+_model_resolver_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if ! declare -f _is_cursor_agent_binary >/dev/null 2>&1; then
+    source "${_model_resolver_lib_dir}/cursor-agent.sh" 2>/dev/null || true
+fi
+if ! declare -f is_claude_agent_type >/dev/null 2>&1; then
+    source "${_model_resolver_lib_dir}/routing.sh" 2>/dev/null || true
+fi
+if ! declare -f is_claude_agent_type >/dev/null 2>&1; then
+    is_claude_agent_type() {
+        case "${1:-}" in
+            claude|claude-*) return 0 ;;
+            *) return 1 ;;
+        esac
+    }
+fi
+
 # v9.23.0: Opus default picker — prefers 4.7 when host supports it, falls back to 4.6.
 # Respects OCTOPUS_OPUS_MODEL override (user-pinned version).
 opus_default_model() {
@@ -56,7 +72,9 @@ resolve_octopus_model() {
     if [[ -f "$persistent_cache" ]] && command -v jq &>/dev/null; then
         cached_val=$(jq -r ".\"$cache_key\" // empty" "$persistent_cache" 2>/dev/null)
         if [[ -n "$cached_val" && "$cached_val" != "null" ]]; then
-            eval "_OCTO_MODEL_CACHE_${cache_key}=\"$cached_val\""
+            # Sanitize before eval: strip shell metacharacters (model names are alphanumeric + .:/-_)
+            cached_val="${cached_val//[^a-zA-Z0-9._:\/\-]/}"
+            eval "_OCTO_MODEL_CACHE_${cache_key}=\"\$cached_val\""
             echo "$cached_val"
             return 0
         fi
@@ -192,6 +210,7 @@ resolve_octopus_model() {
             ollama*)         resolved_model="llama3.3" ;;
             copilot*)        resolved_model="claude-sonnet-4.5" ;; # Copilot default; actual model selected by copilot CLI
             qwen*)           resolved_model="qwen3-coder" ;;
+            cursor-agent*)   resolved_model="grok-4-20" ;;
             opencode-research*) resolved_model="z-ai/glm-5.1" ;;
             opencode-fast*)  resolved_model="google/gemini-2.5-flash" ;;
             opencode*)       resolved_model="google/gemini-2.5-flash" ;;
@@ -203,7 +222,8 @@ resolve_octopus_model() {
     [[ -n "$_trace" ]] && echo "[model-trace] ► Result: $resolved_model" >&2
 
     # Update memory and persistent cache
-    eval "_OCTO_MODEL_CACHE_${cache_key}=\"$resolved_model\""
+    # Use \$var to prevent double-expansion; resolved_model is internally computed but defensive quoting is cheap
+    eval "_OCTO_MODEL_CACHE_${cache_key}=\"\$resolved_model\""
     if command -v jq &>/dev/null; then
         local cache_json="{}"
         # Self-heal: reject unreadable, concatenated-JSON, or non-object payloads.
@@ -250,15 +270,17 @@ is_agent_available_v2() {
     # Load config if needed
     [[ -z "$PROVIDER_CODEX_INSTALLED" ]] && load_providers_config
 
+    if is_claude_agent_type "$agent"; then
+        [[ "$PROVIDER_CLAUDE_INSTALLED" == "true" ]]
+        return
+    fi
+
     case "$agent" in
         codex|codex-standard|codex-mini|codex-max|codex-general|codex-review|codex-spark|codex-reasoning|codex-large-context)
             [[ "$PROVIDER_CODEX_INSTALLED" == "true" && "$PROVIDER_CODEX_AUTH_METHOD" != "none" ]]
             ;;
         gemini|gemini-fast|gemini-image)
             [[ "$PROVIDER_GEMINI_INSTALLED" == "true" && "$PROVIDER_GEMINI_AUTH_METHOD" != "none" ]]
-            ;;
-        claude|claude-sonnet|claude-opus)
-            [[ "$PROVIDER_CLAUDE_INSTALLED" == "true" ]]
             ;;
         openrouter|openrouter-*)
             [[ "$PROVIDER_OPENROUTER_ENABLED" == "true" && "$PROVIDER_OPENROUTER_API_KEY_SET" == "true" ]]
@@ -286,96 +308,14 @@ is_agent_available_v2() {
         opencode|opencode-fast|opencode-research)
             [[ "$PROVIDER_OPENCODE_INSTALLED" == "true" && "$PROVIDER_OPENCODE_AUTH_METHOD" != "none" ]]
             ;;
+        cursor-agent|cursor-agent-*)
+            declare -f _is_cursor_agent_binary >/dev/null 2>&1 && _is_cursor_agent_binary && {
+                [[ -n "${CURSOR_API_KEY:-}" ]] || \
+                grep -Eq '"authInfo"[[:space:]]*:[[:space:]]*\{' "${HOME}/.cursor/cli-config.json" 2>/dev/null
+            }
+            ;;
         *)
             return 0  # Unknown agents assumed available
-            ;;
-    esac
-}
-
-# Enhanced tiered agent selection with provider scoring
-get_tiered_agent_v2() {
-    local task_type="$1"
-    local complexity="${2:-2}"
-
-    # Select best provider
-    local provider
-    provider=$(select_provider "$task_type" "$complexity")
-
-    # Map provider + task_type to specific agent
-    case "$provider" in
-        codex)
-            case "$task_type" in
-                review) echo "codex-review" ;;
-                image)
-                    # Codex can't do images, fallback
-                    if is_agent_available_v2 "gemini-image"; then
-                        echo "gemini-image"
-                    else
-                        echo "openrouter"  # OpenRouter can do images
-                    fi
-                    ;;
-                *)
-                    case "$complexity" in
-                        1) echo "codex-mini" ;;
-                        3) echo "codex-max" ;;
-                        *) echo "codex-standard" ;;
-                    esac
-                    ;;
-            esac
-            ;;
-        gemini)
-            case "$task_type" in
-                image) echo "gemini-image" ;;
-                *)
-                    case "$complexity" in
-                        1) echo "gemini-fast" ;;
-                        *) echo "gemini" ;;
-                    esac
-                    ;;
-            esac
-            ;;
-        claude)
-            if [[ "$SUPPORTS_AGENT_TYPE_ROUTING" == "true" ]]; then
-                case "$complexity" in
-                    1) echo "claude" ;;          # Haiku tier
-                    3) echo "claude-opus" ;;     # Opus 4.6 for premium
-                    *) echo "claude" ;;          # Sonnet (default)
-                esac
-            else
-                echo "claude"
-            fi
-            ;;
-        openrouter)
-            # v8.11.0: Route to model-specific agents based on task type
-            case "$task_type" in
-                review)
-                    if is_agent_available_v2 "openrouter-glm5"; then
-                        echo "openrouter-glm5"   # GLM-5: best for code review (77.8% SWE-bench)
-                    else
-                        echo "openrouter"
-                    fi
-                    ;;
-                research|design)
-                    if is_agent_available_v2 "openrouter-kimi"; then
-                        echo "openrouter-kimi"    # Kimi K2.5: 262K context, cheapest
-                    else
-                        echo "openrouter"
-                    fi
-                    ;;
-                security|reasoning)
-                    if is_agent_available_v2 "openrouter-deepseek"; then
-                        echo "openrouter-deepseek" # DeepSeek R1: visible reasoning traces
-                    else
-                        echo "openrouter"
-                    fi
-                    ;;
-                *)
-                    echo "openrouter"
-                    ;;
-            esac
-            ;;
-        *)
-            echo "codex-standard"
             ;;
     esac
 }

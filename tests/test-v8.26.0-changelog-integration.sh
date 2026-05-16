@@ -7,22 +7,20 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+source "$SCRIPT_DIR/helpers/test-framework.sh"
+test_suite "v8.26.0 Changelog Integration"
+
 ORCHESTRATE_SH="$PROJECT_ROOT/scripts/orchestrate.sh"
 # v9.12: Search orchestrate.sh + lib/*.sh for functions that may have been decomposed
 ALL_SRC=$(mktemp)
 cat "$ORCHESTRATE_SH" "$(dirname "$ORCHESTRATE_SH")/lib/"*.sh > "$ALL_SRC" 2>/dev/null
 trap 'rm -f "$ALL_SRC"' EXIT
 HOOKS_JSON="$PROJECT_ROOT/.claude-plugin/hooks.json"
-SETTINGS_JSON="$PROJECT_ROOT/.claude-plugin/settings.json"
+CONFIG_CHANGE_HANDLER="$PROJECT_ROOT/hooks/config-change-handler.sh"
 SKILL_DOCTOR="$PROJECT_ROOT/.claude/skills/skill-doctor.md"
 CONFIG_YAML="$PROJECT_ROOT/agents/config.yaml"
 
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
 
 TEST_COUNT=0
 PASS_COUNT=0
@@ -31,18 +29,9 @@ FAIL_COUNT=0
 echo -e "${BLUE}Testing v8.26.0 Changelog Integration${NC}"
 echo ""
 
-pass() {
-    PASS_COUNT=$((PASS_COUNT + 1))
-    TEST_COUNT=$((TEST_COUNT + 1))
-    echo -e "${GREEN}  PASS${NC}: $1"
-}
+pass() { test_case "$1"; test_pass; }
 
-fail() {
-    FAIL_COUNT=$((FAIL_COUNT + 1))
-    TEST_COUNT=$((TEST_COUNT + 1))
-    echo -e "${RED}  FAIL${NC}: $1"
-    if [[ -n "${2:-}" ]]; then echo -e "   ${YELLOW}$2${NC}"; fi
-}
+fail() { test_case "$1"; test_fail "${2:-$1}"; }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test Suite 1: Feature Flags (9 tests)
@@ -150,6 +139,8 @@ echo ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test Suite 4: Settings (8 tests)
+# settings.json was removed in v9.22.2; settings now live as env-var defaults
+# in lib/*.sh and are registered for hot-reload in config-change-handler.sh
 # ═══════════════════════════════════════════════════════════════════════════════
 
 echo "Test Suite 4: Settings"
@@ -158,10 +149,10 @@ echo "────────────────────────�
 for field in OCTOPUS_CODEX_SANDBOX OCTOPUS_MEMORY_INJECTION OCTOPUS_PERSONA_PACKS \
              OCTOPUS_WORKTREE_ISOLATION OCTOPUS_MAX_PARALLEL_AGENTS \
              OCTOPUS_QUALITY_GATE_THRESHOLD OCTOPUS_COST_WARNINGS OCTOPUS_TOOL_POLICIES; do
-    if grep -q "\"${field}\"" "$SETTINGS_JSON"; then
-        pass "settings.json contains $field"
+    if grep -q "${field}" "$CONFIG_CHANGE_HANDLER"; then
+        pass "config-change-handler registers $field"
     else
-        fail "settings.json does NOT contain $field"
+        fail "config-change-handler does NOT register $field"
     fi
 done
 echo ""
@@ -277,12 +268,4 @@ echo ""
 # ═══════════════════════════════════════════════════════════════════════════════
 # Summary
 # ═══════════════════════════════════════════════════════════════════════════════
-
-echo "════════════════════════════════════════"
-echo -e "Total: $TEST_COUNT | ${GREEN}Pass: $PASS_COUNT${NC} | ${RED}Fail: $FAIL_COUNT${NC}"
-echo "════════════════════════════════════════"
-
-if [[ $FAIL_COUNT -gt 0 ]]; then
-    exit 1
-fi
-exit 0
+test_summary

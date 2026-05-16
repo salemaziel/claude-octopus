@@ -15,6 +15,11 @@ openrouter_execute_model() {
     local complexity="${4:-2}"
     local output_file="${5:-}"
 
+    # stdin fallback: probe_single_agent pipes prompt via stdin (#305)
+    if [[ -z "$prompt" && ! -t 0 ]]; then
+        prompt=$(cat)
+    fi
+
     if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
         log ERROR "OPENROUTER_API_KEY not set"
         return 1
@@ -113,10 +118,12 @@ EOF
 
     rm -f "$header_file"
 
-    # Extract content from response
+    # Extract content from OpenAI-compatible nested path .choices[0].message.content.
+    # `json_extract` only reads top-level keys, so it silently returned empty and the
+    # caller got the raw JSON dumped to its result file. Fixed in v9.29 (issue #307).
     local content=""
-    if json_extract "$response" "content"; then
-        content="$REPLY"
+    if command -v jq &>/dev/null; then
+        content=$(printf '%s' "$response" | jq -re '.choices[0].message.content // empty' 2>/dev/null) || content=""
     fi
 
     if [[ -z "$content" ]]; then
@@ -142,6 +149,11 @@ EOF
 openrouter_execute() {
     local prompt="$1"
     local task_type="${2:-general}"
+
+    # stdin fallback: probe_single_agent pipes prompt via stdin (#305)
+    if [[ -z "$prompt" && ! -t 0 ]]; then
+        prompt=$(cat)
+    fi
     local complexity="${3:-2}"
     local output_file="${4:-}"
 
@@ -162,6 +174,11 @@ perplexity_execute() {
     local model="$1"
     local prompt="$2"
     local output_file="${3:-}"
+
+    # stdin fallback: probe_single_agent pipes prompt via stdin (#305)
+    if [[ -z "$prompt" && ! -t 0 ]]; then
+        prompt=$(cat)
+    fi
 
     if [[ -z "${PERPLEXITY_API_KEY:-}" ]]; then
         log ERROR "PERPLEXITY_API_KEY not set — get one at https://www.perplexity.ai/settings/api"
@@ -193,10 +210,11 @@ EOF
         -H "Connection: keep-alive" \
         -d "$payload")
 
-    # Extract content from response (same format as OpenAI-compatible API)
+    # Extract content from OpenAI-compatible nested path .choices[0].message.content.
+    # See openrouter_execute_model above — same bug, same fix (issue #307).
     local content=""
-    if json_extract "$response" "content"; then
-        content="$REPLY"
+    if command -v jq &>/dev/null; then
+        content=$(printf '%s' "$response" | jq -re '.choices[0].message.content // empty' 2>/dev/null) || content=""
     fi
 
     # Extract citations if available (Perplexity-specific field)

@@ -204,6 +204,11 @@
         },
         {
           "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/auto-router-inject.sh",
+          "timeout": 3
+        },
+        {
+          "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start-memory.sh",
           "additionalContext": "Restore persisted user preferences and session sync from auto-memory",
           "timeout": 30
@@ -212,10 +217,17 @@
           "type": "command",
           "command": "${CLAUDE_PLUGIN_ROOT}/hooks/statusline-auto-repair.sh",
           "timeout": 5
+        },
+        {
+          "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/version-advisory.sh",
+          "additionalContext": "One-line advisory when plugin version changes between sessions",
+          "timeout": 5
         }
       ]
     },
     {
+      "matcher": {},
       "hooks": [
         {
           "type": "command",
@@ -364,14 +376,26 @@
       "hooks": [
         {
           "type": "command",
-          "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/done-criteria.sh\"",
+          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/done-criteria.sh",
           "timeout": 5
+        }
+      ]
+    },
+    {
+      "matcher": {},
+      "hooks": [
+        {
+          "type": "command",
+          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/github-work-queue-watch.sh",
+          "additionalContext": "Periodically surface open nyldn/claude-octopus issues and PRs while working in this repo.",
+          "timeout": 8
         }
       ]
     }
   ],
   "StopFailure": [
     {
+      "matcher": {},
       "hooks": [
         {
           "type": "command",
@@ -383,6 +407,7 @@
   ],
   "CwdChanged": [
     {
+      "matcher": {},
       "hooks": [
         {
           "type": "command",
@@ -394,6 +419,7 @@
   ],
   "TaskCreated": [
     {
+      "matcher": {},
       "hooks": [
         {
           "type": "command",
@@ -446,6 +472,7 @@
   ],
   "PermissionDenied": [
     {
+      "matcher": {},
       "hooks": [
         {
           "type": "command",

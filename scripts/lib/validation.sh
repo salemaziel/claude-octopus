@@ -219,7 +219,7 @@ wrap_cli_output() {
     fi
 
     case "$provider" in
-        codex*|gemini*|perplexity*)
+        codex*|gemini*|perplexity*|cursor-agent*)
             cat << EOF
 <external-cli-output provider="$provider" trust="untrusted">
 $output
@@ -282,7 +282,7 @@ atomic_json_update() {
 
     # Acquire lock
     touch "$lockfile"
-    trap "rm -f $lockfile" EXIT
+    trap 'rm -f "'"$lockfile"'"' EXIT
 
     # Update atomically
     local tmp_file="${json_file}.tmp.$$"

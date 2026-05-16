@@ -23,47 +23,65 @@
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECURITY: Environment isolation for external CLI providers (v8.7.0)
-# Returns env prefix that limits environment variables to essentials only
+# Populates PROVIDER_ENV_ARRAY with argv tokens that limit environment
+# variables to essentials only. This stays safe when PATH contains spaces.
 # ═══════════════════════════════════════════════════════════════════════════════
 build_provider_env() {
     local provider="$1"
+    PROVIDER_ENV_ARRAY=()
 
     if [[ "${OCTOPUS_SECURITY_V870:-true}" != "true" ]]; then
         return 0
     fi
 
-    # v9.15.1: Skip env -i isolation on Windows — PATH contains spaces
-    # (C:\Program Files\...) which break read -ra word splitting in spawn.sh
-    case "${OCTOPUS_PLATFORM:-$(uname)}" in
-        MINGW*|MSYS*|CYGWIN*|Windows*) return 0 ;;
-    esac
-
     # v9.23: Propagate W3C trace headers into isolated env when present so
     # external CLIs (codex/gemini/perplexity) participate in distributed traces.
     # SUPPORTS_TRACEPARENT was detected in v2.1.98+ (Bash subprocesses) and
     # v2.1.110+ added the same for SDK/headless sessions.
-    local _trace_prefix=""
+    local -a _trace_env=()
     if [[ -n "${TRACEPARENT:-}" ]]; then
-        _trace_prefix+=" TRACEPARENT=${TRACEPARENT}"
+        _trace_env+=("TRACEPARENT=${TRACEPARENT}")
     fi
     if [[ -n "${TRACESTATE:-}" ]]; then
-        _trace_prefix+=" TRACESTATE=${TRACESTATE}"
+        _trace_env+=("TRACESTATE=${TRACESTATE}")
     fi
 
     # v9.2.1: Try resolving env vars before building isolated env (Issue #177)
     case "$provider" in
         codex*)
-            [[ -z "${OPENAI_API_KEY:-}" ]] && resolve_provider_env "OPENAI_API_KEY" 2>/dev/null
-            echo "env -i PATH=$PATH HOME=$HOME OPENAI_API_KEY=${OPENAI_API_KEY:-} TMPDIR=${TMPDIR:-/tmp}${_trace_prefix}"
+            if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+                resolve_provider_env "OPENAI_API_KEY" 2>/dev/null || true
+            fi
+            PROVIDER_ENV_ARRAY=(env -i "PATH=$PATH" "HOME=$HOME" "OPENAI_API_KEY=${OPENAI_API_KEY:-}" "TMPDIR=${TMPDIR:-/tmp}")
+            if [[ ${#_trace_env[@]} -gt 0 ]]; then
+                PROVIDER_ENV_ARRAY+=("${_trace_env[@]}")
+            fi
             ;;
         gemini*)
-            [[ -z "${GEMINI_API_KEY:-}" ]] && resolve_provider_env "GEMINI_API_KEY" 2>/dev/null
-            [[ -z "${GOOGLE_API_KEY:-}" ]] && resolve_provider_env "GOOGLE_API_KEY" 2>/dev/null
-            echo "env -i PATH=$PATH HOME=$HOME GEMINI_API_KEY=${GEMINI_API_KEY:-} GOOGLE_API_KEY=${GOOGLE_API_KEY:-} NODE_NO_WARNINGS=1 TMPDIR=${TMPDIR:-/tmp}${_trace_prefix}"
+            if [[ -z "${GEMINI_API_KEY:-}" ]]; then
+                resolve_provider_env "GEMINI_API_KEY" 2>/dev/null || true
+            fi
+            if [[ -z "${GOOGLE_API_KEY:-}" ]]; then
+                resolve_provider_env "GOOGLE_API_KEY" 2>/dev/null || true
+            fi
+            PROVIDER_ENV_ARRAY=(env -i "PATH=$PATH" "HOME=$HOME" "GEMINI_API_KEY=${GEMINI_API_KEY:-}" "GOOGLE_API_KEY=${GOOGLE_API_KEY:-}" "NODE_NO_WARNINGS=1" "TMPDIR=${TMPDIR:-/tmp}")
+            if [[ ${#_trace_env[@]} -gt 0 ]]; then
+                PROVIDER_ENV_ARRAY+=("${_trace_env[@]}")
+            fi
             ;;
         perplexity*)
-            [[ -z "${PERPLEXITY_API_KEY:-}" ]] && resolve_provider_env "PERPLEXITY_API_KEY" 2>/dev/null
-            echo "env -i PATH=$PATH HOME=$HOME PERPLEXITY_API_KEY=${PERPLEXITY_API_KEY:-} TMPDIR=${TMPDIR:-/tmp}${_trace_prefix}"
+            # perplexity_execute is a shell function — env -i cannot exec it (#300)
+            if [[ -z "${PERPLEXITY_API_KEY:-}" ]]; then
+                resolve_provider_env "PERPLEXITY_API_KEY" 2>/dev/null || true
+            fi
+            return 0
+            ;;
+        openrouter*)
+            # openrouter_execute is a shell function — env -i cannot exec it (#300)
+            if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
+                resolve_provider_env "OPENROUTER_API_KEY" 2>/dev/null || true
+            fi
+            return 0
             ;;
         *)
             # Claude and other providers: no isolation needed
@@ -253,10 +271,10 @@ set_provider_model() {
 
     # v8.49.0: Provider whitelist validation
     case "$provider" in
-        codex|gemini|claude|perplexity|opencode|openrouter) ;;
+        codex|gemini|claude|perplexity|opencode|openrouter|cursor-agent) ;;
         *)
             if [[ "${4:-}" != "--force" ]]; then
-                echo "ERROR: Unknown provider '$provider'. Valid: codex, gemini, claude, perplexity, opencode, openrouter" >&2
+                echo "ERROR: Unknown provider '$provider'. Valid: codex, gemini, claude, perplexity, opencode, openrouter, cursor-agent" >&2
                 echo "  Use --force to set a custom provider (e.g., for local proxies)" >&2
                 return 1
             fi
@@ -358,12 +376,12 @@ reset_provider_model() {
         # Clear all overrides (v8.49.0: atomic)
         atomic_json_update "$config_file" '.overrides = {}'
         echo "✓ Cleared all model overrides"
-    elif [[ "$provider" =~ ^(codex|gemini|claude|perplexity|opencode|openrouter)$ ]]; then
+    elif [[ "$provider" =~ ^(codex|gemini|claude|perplexity|opencode|openrouter|cursor-agent)$ ]]; then
         # Clear specific override (v8.49.0: atomic + jq --arg)
         atomic_json_update "$config_file" 'del(.overrides[$p])' --arg p "$provider"
         echo "✓ Cleared $provider override"
     else
-        echo "ERROR: Invalid provider '$provider'. Use 'codex', 'gemini', 'claude', 'perplexity', 'opencode', 'openrouter', or 'all'" >&2
+        echo "ERROR: Invalid provider '$provider'. Use 'codex', 'gemini', 'claude', 'perplexity', 'opencode', 'openrouter', 'cursor-agent', or 'all'" >&2
         return 1
     fi
 
@@ -533,4 +551,3 @@ is_api_based_provider() {
             ;;
     esac
 }
-

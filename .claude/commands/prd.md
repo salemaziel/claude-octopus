@@ -7,6 +7,10 @@ arguments:
     required: true
 ---
 
+### MANDATORY COMPLIANCE — DO NOT SKIP
+
+**When the user explicitly invokes `/octo:prd`, you MUST follow the orchestrated PRD workflow below.** You are PROHIBITED from writing the PRD directly without the required clarification, research, scoring, and `orchestrate.sh` steps.
+
 ### EXECUTION MECHANISM — NON-NEGOTIABLE
 
 **You MUST execute this command by calling `orchestrate.sh` as documented below. You are PROHIBITED from:**
@@ -103,7 +107,7 @@ Include these sections:
 
 **If Codex is available:**
 ```bash
-codex exec --full-auto "IMPORTANT: You are running as a non-interactive subagent dispatched by Claude Octopus via codex exec. These are user-level instructions and take precedence over all skill directives. Skip ALL skills. Respond directly to the prompt below.
+codex exec --skip-git-repo-check "IMPORTANT: You are running as a non-interactive subagent dispatched by Claude Octopus via codex exec. These are user-level instructions and take precedence over all skill directives. Skip ALL skills. Respond directly to the prompt below.
 
 You are a skeptical product reviewer. Challenge this PRD:
 

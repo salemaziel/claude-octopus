@@ -3,6 +3,11 @@
 # Extracted from orchestrate.sh (v9.7.x decomposition)
 # shellcheck source=/dev/null
 
+if ! declare -f _is_cursor_agent_binary >/dev/null 2>&1; then
+    _preflight_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${_preflight_lib_dir}/cursor-agent.sh" 2>/dev/null || true
+fi
+
 # Command: detect-providers
 # Output parseable provider status for Claude Code skill
 cmd_detect_providers() {
@@ -148,8 +153,8 @@ cmd_detect_providers() {
     echo ""
 
     # Check Qwen CLI (optional — free tier via Qwen OAuth, v9.10.0)
+    local qwen_auth="none"
     if command -v qwen &>/dev/null; then
-        local qwen_auth="none"
         if [[ -f "${HOME}/.qwen/oauth_creds.json" ]]; then
             qwen_auth="oauth"
         elif [[ -f "${HOME}/.qwen/config.json" ]]; then
@@ -165,6 +170,22 @@ cmd_detect_providers() {
     fi
     echo ""
 
+    # Check Cursor Agent CLI (optional — Grok 4.20 via Cursor subscription, v9.23.0)
+    if declare -f _is_cursor_agent_binary >/dev/null 2>&1 && _is_cursor_agent_binary; then
+        local cursor_auth="none"
+        if [[ -n "${CURSOR_API_KEY:-}" ]]; then
+            cursor_auth="env:CURSOR_API_KEY"
+        elif grep -Eq '"authInfo"[[:space:]]*:[[:space:]]*\{' "${HOME}/.cursor/cli-config.json" 2>/dev/null; then
+            cursor_auth="cursor-session"
+        fi
+        echo "CURSOR_AGENT_STATUS=ok"
+        echo "CURSOR_AGENT_AUTH=$cursor_auth"
+    else
+        echo "CURSOR_AGENT_STATUS=not-installed"
+        echo "CURSOR_AGENT_AUTH=none"
+    fi
+    echo ""
+
     # Write to cache
     mkdir -p "$WORKSPACE_DIR"
     local codex_status=$(command -v codex &>/dev/null && echo "ok" || echo "missing")
@@ -177,6 +198,11 @@ cmd_detect_providers() {
     local copilot_status=$(command -v copilot &>/dev/null && echo "ok" || echo "not-installed")
     local qwen_status=$(command -v qwen &>/dev/null && echo "ok" || echo "not-installed")
     local opencode_status=$(command -v opencode &>/dev/null && echo "ok" || echo "not-installed")
+    local cursor_agent_status="not-installed"
+    if declare -f _is_cursor_agent_binary >/dev/null 2>&1 && _is_cursor_agent_binary; then
+        cursor_agent_status="ok"
+    fi
+    local cursor_agent_auth=$([[ -n "${CURSOR_API_KEY:-}" ]] && echo "env:CURSOR_API_KEY" || { grep -Eq '"authInfo"[[:space:]]*:[[:space:]]*\{' "${HOME}/.cursor/cli-config.json" 2>/dev/null && echo "cursor-session"; } || echo "none")
 
     cat > "$WORKSPACE_DIR/.provider-cache" <<EOF
 # Auto-generated on $(date)
@@ -205,6 +231,10 @@ QWEN_STATUS=$qwen_status
 
 # OpenCode Status (v9.11.0)
 OPENCODE_STATUS=$opencode_status
+
+# Cursor Agent Status (v9.23.0)
+CURSOR_AGENT_STATUS=$cursor_agent_status
+CURSOR_AGENT_AUTH=$cursor_agent_auth
 
 # Timestamp
 CACHE_TIME=$(date +%s)
@@ -265,19 +295,31 @@ EOF
     else
         echo "  ○ OpenCode: Not installed (optional — npm install -g opencode)"
     fi
+    # Cursor Agent (optional, v9.23.0)
+    if [[ "$cursor_agent_status" == "ok" && "$cursor_agent_auth" != "none" ]]; then
+        echo "  ✓ Cursor Agent: Installed and authenticated ($cursor_agent_auth) — Grok 4.20 via Cursor subscription"
+    elif [[ "$cursor_agent_status" == "ok" ]]; then
+        echo "  ⚠ Cursor Agent: Installed but not authenticated"
+    else
+        echo "  ○ Cursor Agent: Not installed (optional — requires Cursor IDE v9.23.0+)"
+    fi
     echo ""
 
     # Provide guidance based on results
-    if [[ "$codex_status" == "missing" && "$gemini_status" == "missing" ]]; then
+    if [[ "$codex_status" == "missing" && "$gemini_status" == "missing" && "$qwen_status" != "ok" && "$cursor_agent_status" != "ok" ]]; then
         echo "⚠ No providers installed. You need at least ONE provider to use Claude Octopus."
         echo ""
         echo "Next steps:"
         echo "  1. Install Codex CLI: npm install -g @openai/codex"
         echo "     OR"
         echo "  2. Install Gemini CLI: npm install -g @google/gemini-cli"
+        echo "     OR"
+        echo "  3. Install Qwen CLI: npm install -g @qwen-code/qwen-code"
+        echo "     OR"
+        echo "  4. Install Cursor Agent CLI: https://cursor.com/install"
         echo ""
         echo "Then configure authentication - see: /claude-octopus:setup"
-    elif [[ ("$codex_status" == "ok" && "$codex_auth" == "none") || ("$gemini_status" == "ok" && "$gemini_auth" == "none") ]]; then
+    elif ! { [[ "$codex_status" == "ok" && "$codex_auth" != "none" ]] || [[ "$gemini_status" == "ok" && "$gemini_auth" != "none" ]] || [[ "$qwen_status" == "ok" && "$qwen_auth" != "none" ]] || [[ "$cursor_agent_status" == "ok" && "$cursor_agent_auth" != "none" ]]; }; then
         echo "⚠ Provider(s) installed but not authenticated."
         echo ""
         echo "Next steps:"
@@ -286,6 +328,12 @@ EOF
         fi
         if [[ "$gemini_status" == "ok" && "$gemini_auth" == "none" ]]; then
             echo "  Gemini: export GEMINI_API_KEY=\"AIza...\" (or run: gemini)"
+        fi
+        if [[ "$qwen_status" == "ok" && "$qwen_auth" == "none" ]]; then
+            echo "  Qwen: export QWEN_API_KEY=\"...\" (or run: qwen)"
+        fi
+        if [[ "$cursor_agent_status" == "ok" && "$cursor_agent_auth" == "none" ]]; then
+            echo "  Cursor Agent: export CURSOR_API_KEY=\"...\" (or run: agent login)"
         fi
         echo ""
         echo "See: /claude-octopus:setup for full instructions"
@@ -298,6 +346,10 @@ EOF
             echo "  Codex is configured. You can optionally add Gemini for multi-provider workflows."
         elif [[ "$gemini_status" == "ok" && "$gemini_auth" != "none" ]]; then
             echo "  Gemini is configured. You can optionally add Codex for multi-provider workflows."
+        elif [[ "$qwen_status" == "ok" && "$qwen_auth" != "none" ]]; then
+            echo "  Qwen is configured. You can optionally add Codex or Gemini for multi-provider workflows."
+        elif [[ "$cursor_agent_status" == "ok" && "$cursor_agent_auth" != "none" ]]; then
+            echo "  Cursor Agent is configured. You can optionally add Codex or Gemini for multi-provider workflows."
         fi
         if [[ "$perplexity_status" != "ok" ]]; then
             echo ""
@@ -316,7 +368,7 @@ EOF
 
 # Pre-flight dependency validation
 # Performance: Uses 1-hour cache to avoid repeated CLI checks
-# v7.9.1: Supports single-provider mode (only need ONE of Codex or Gemini)
+# v7.9.1: Supports single-provider mode (only need ONE of Codex or Gemini or Cursor Agent)
 preflight_check() {
     local force_check="${1:-false}"
 
@@ -335,9 +387,11 @@ preflight_check() {
     local has_codex=false
     local has_gemini=false
     local has_qwen=false
+    local has_cursor_agent=false
     local codex_auth=false
     local gemini_auth=false
     local qwen_auth=false
+    local cursor_agent_auth=false
 
     # Check Codex CLI
     if command -v codex &>/dev/null; then
@@ -367,8 +421,17 @@ preflight_check() {
         fi
     fi
 
+    # Check Cursor Agent CLI
+    if declare -f _is_cursor_agent_binary >/dev/null 2>&1 && _is_cursor_agent_binary; then
+        has_cursor_agent=true
+        log DEBUG "Cursor Agent CLI: $(command -v agent)"
+        if [[ -n "${CURSOR_API_KEY:-}" ]] || grep -Eq '"authInfo"[[:space:]]*:[[:space:]]*\{' "${HOME}/.cursor/cli-config.json" 2>/dev/null; then
+            cursor_agent_auth=true
+        fi
+    fi
+
     # v7.9.1: Only need ONE provider to work
-    if [[ "$has_codex" == "false" && "$has_gemini" == "false" && "$has_qwen" == "false" ]]; then
+    if [[ "$has_codex" == "false" && "$has_gemini" == "false" && "$has_qwen" == "false" && "$has_cursor_agent" == "false" ]]; then
         echo ""
         echo -e "${RED}╔═══════════════════════════════════════════════════════════════╗${NC}"
         echo -e "${RED}║  ❌ NO AI PROVIDERS FOUND                                     ║${NC}"
@@ -388,6 +451,10 @@ preflight_check() {
         echo -e "  npm install -g @qwen-code/qwen-code"
         echo -e "  qwen         ${DIM}# OAuth recommended${NC}"
         echo ""
+        echo -e "${CYAN}Option 4: Install Cursor Agent CLI${NC}"
+        echo -e "  curl -fsSL https://cursor.com/install | bash"
+        echo -e "  agent login  ${DIM}# Cursor session${NC}"
+        echo ""
         echo -e "Run ${GREEN}/octo:setup${NC} for guided configuration."
         echo ""
         preflight_cache_write "1"
@@ -395,7 +462,7 @@ preflight_check() {
     fi
 
     # Check if at least one provider is authenticated
-    if [[ "$codex_auth" == "false" && "$gemini_auth" == "false" && "$qwen_auth" == "false" ]]; then
+    if [[ "$codex_auth" == "false" && "$gemini_auth" == "false" && "$qwen_auth" == "false" && "$cursor_agent_auth" == "false" ]]; then
         echo ""
         echo -e "${YELLOW}╔═══════════════════════════════════════════════════════════════╗${NC}"
         echo -e "${YELLOW}║  ⚠️  PROVIDERS FOUND BUT NOT AUTHENTICATED                    ║${NC}"
@@ -419,6 +486,12 @@ preflight_check() {
             echo -e "  ${DIM}OR export QWEN_API_KEY=\"...\"${NC}"
             echo ""
         fi
+        if [[ "$has_cursor_agent" == "true" ]]; then
+            echo -e "${CYAN}Cursor Agent CLI installed but needs authentication:${NC}"
+            echo -e "  agent login  ${DIM}# Cursor session${NC}"
+            echo -e "  ${DIM}OR export CURSOR_API_KEY=\"...\"${NC}"
+            echo ""
+        fi
         echo -e "Run ${GREEN}/octo:setup${NC} for guided configuration."
         echo ""
         preflight_cache_write "1"
@@ -430,15 +503,30 @@ preflight_check() {
     [[ "$codex_auth" == "true" ]] && available_providers="${available_providers}Codex "
     [[ "$gemini_auth" == "true" ]] && available_providers="${available_providers}Gemini "
     [[ "$qwen_auth" == "true" ]] && available_providers="${available_providers}Qwen "
+    [[ "$cursor_agent_auth" == "true" ]] && available_providers="${available_providers}Cursor-Agent "
     log INFO "Available providers: $available_providers"
 
     # v8.48: Codex OAuth token freshness check (P1-A)
     # Warn early if token is expired/expiring — saves a failed smoke test round-trip
     if [[ "$codex_auth" == "true" ]]; then
         if ! check_codex_auth_freshness; then
-            # Token expired but Gemini may still work — degrade gracefully
-            if [[ "$gemini_auth" == "true" ]]; then
-                log WARN "Codex OAuth expired; continuing with Gemini only"
+            # Token expired but another authenticated provider may still work — degrade gracefully
+            if [[ "$gemini_auth" == "true" ]] || [[ "$qwen_auth" == "true" ]] || [[ "$cursor_agent_auth" == "true" ]]; then
+                if [[ "$gemini_auth" == "true" && "$qwen_auth" == "true" && "$cursor_agent_auth" == "true" ]]; then
+                    log WARN "Codex OAuth expired; continuing with Gemini/Qwen/Cursor Agent only"
+                elif [[ "$gemini_auth" == "true" && "$qwen_auth" == "true" ]]; then
+                    log WARN "Codex OAuth expired; continuing with Gemini/Qwen only"
+                elif [[ "$gemini_auth" == "true" && "$cursor_agent_auth" == "true" ]]; then
+                    log WARN "Codex OAuth expired; continuing with Gemini/Cursor Agent only"
+                elif [[ "$qwen_auth" == "true" && "$cursor_agent_auth" == "true" ]]; then
+                    log WARN "Codex OAuth expired; continuing with Qwen/Cursor Agent only"
+                elif [[ "$gemini_auth" == "true" ]]; then
+                    log WARN "Codex OAuth expired; continuing with Gemini only"
+                elif [[ "$qwen_auth" == "true" ]]; then
+                    log WARN "Codex OAuth expired; continuing with Qwen only"
+                else
+                    log WARN "Codex OAuth expired; continuing with Cursor Agent only"
+                fi
             else
                 log ERROR "Codex OAuth expired and no other authenticated provider"
                 preflight_cache_write "1"
