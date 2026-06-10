@@ -22,15 +22,20 @@ if ! declare -f is_claude_agent_type >/dev/null 2>&1; then
     }
 fi
 
-# v9.23.0: Opus default picker — prefers 4.7 when host supports it, falls back to 4.6.
-# Respects OCTOPUS_OPUS_MODEL override (user-pinned version).
+# v9.42.0: Opus default picker — prefers 4.8 when host supports it, then 4.7,
+# then 4.6. Respects OCTOPUS_OPUS_MODEL override (user-pinned version).
+# v9.44.0: Claude Fable 5 (Mythos-class, $10/$50 MTok, 1M ctx) is opt-in only:
+# pin OCTOPUS_OPUS_MODEL=claude-fable-5. Never auto-selected — 2x Opus 4.8 cost,
+# and Anthropic retains prompts/outputs up to 30 days for safety classifiers.
 opus_default_model() {
     if [[ -n "${OCTOPUS_OPUS_MODEL:-}" ]]; then
         echo "$OCTOPUS_OPUS_MODEL"
         return 0
     fi
-    # SUPPORTS_OPUS_4_7 is detected from Claude Code v2.1.111+ — see lib/providers.sh
-    if [[ "${SUPPORTS_OPUS_4_7:-false}" == "true" ]]; then
+    # SUPPORTS_OPUS_4_8 is detected from Claude Code v2.1.154+ — see lib/providers.sh
+    if [[ "${SUPPORTS_OPUS_4_8:-false}" == "true" ]]; then
+        echo "claude-opus-4.8"
+    elif [[ "${SUPPORTS_OPUS_4_7:-false}" == "true" ]]; then
         echo "claude-opus-4.7"
     else
         echo "claude-opus-4.6"
@@ -138,7 +143,21 @@ resolve_octopus_model() {
                         resolved_model=$(resolve_octopus_model "$ref_provider" "$ref_type" "" "")
                     fi
                 else
-                    resolved_model="$routed"
+                    # Bare provider names in routing values are provider routes, not
+                    # model names. "researcher": "perplexity" means "route this role
+                    # to the perplexity provider" — it must never become
+                    # `codex exec --model perplexity` (bug 260609). Treat a bare
+                    # provider name like "provider:" with no model: skip for other
+                    # providers, fall through to lower tiers for the provider itself.
+                    case "$routed" in
+                        codex|gemini|claude|perplexity|qwen|copilot|opencode|ollama|openrouter|cursor-agent|vibe)
+                            [[ -n "$_trace" ]] && echo "[model-trace] Tier 3 (phase/role routing): SKIP (route '$routed' is a provider name, not a model — resolving for $provider)" >&2
+                            routed=""
+                            ;;
+                        *)
+                            resolved_model="$routed"
+                            ;;
+                    esac
                 fi
                 if [[ -n "$routed" ]]; then
                     [[ -n "$_trace" ]] && echo "[model-trace] Tier 3 (phase/role routing): $resolved_model ← SELECTED (route: $routed)" >&2
@@ -196,7 +215,7 @@ resolve_octopus_model() {
     # Fallback to hard-coded defaults (Priority 7)
     if [[ -z "$resolved_model" || "$resolved_model" == "null" ]]; then
         case "$agent_type" in
-            codex*)          resolved_model="gpt-5.4" ;;
+            codex*)          resolved_model="gpt-5.5" ;;
             gemini-fast|gemini-flash) resolved_model="gemini-3-flash-preview" ;;
             gemini*)         resolved_model="gemini-3.1-pro-preview" ;;
             claude-opus-legacy*) resolved_model="claude-opus-4.6" ;;
@@ -211,10 +230,10 @@ resolve_octopus_model() {
             copilot*)        resolved_model="claude-sonnet-4.5" ;; # Copilot default; actual model selected by copilot CLI
             qwen*)           resolved_model="qwen3-coder" ;;
             cursor-agent*)   resolved_model="grok-4-20" ;;
-            opencode-research*) resolved_model="z-ai/glm-5.1" ;;
-            opencode-fast*)  resolved_model="google/gemini-2.5-flash" ;;
-            opencode*)       resolved_model="google/gemini-2.5-flash" ;;
-            *)              resolved_model="gpt-5.4" ;; # Safest universal fallback
+            opencode-research*) resolved_model="opencode/glm-5.1" ;;
+            opencode-fast*)  resolved_model="opencode/deepseek-v4-flash-free" ;;
+            opencode*)       resolved_model="opencode/deepseek-v4-flash-free" ;;
+            *)              resolved_model="gpt-5.5" ;; # Safest universal fallback
         esac
         [[ -n "$_trace" ]] && echo "[model-trace] Tier 7 (hardcoded fallback): $resolved_model ← SELECTED" >&2
     fi

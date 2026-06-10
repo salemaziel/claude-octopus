@@ -61,8 +61,28 @@ fi
 # Keep debug flag defined even when nounset is enabled by sourced scripts.
 OCTOPUS_DEBUG="${OCTOPUS_DEBUG:-false}"
 
-# Workspace location - uses home directory for global installation
+# Workspace location — the directory whose files dispatched providers must read.
+# Callers historically `cd` into the plugin install before invoking orchestrate.sh,
+# which sandboxed every provider (codex workdir, gemini workspace) to the plugin
+# checkout instead of the user's project, so no provider could read project files.
+# Resolution order: OCTOPUS_PROJECT_DIR > CLAUDE_PROJECT_DIR (when PWD is inside
+# the plugin install) > PWD. The -d/--dir flag still overrides at arg parse.
 PROJECT_ROOT="${PWD}"
+if [[ -n "${OCTOPUS_PROJECT_DIR:-}" ]]; then
+    PROJECT_ROOT="${OCTOPUS_PROJECT_DIR}"
+else
+    _octo_pwd_phys="$(pwd -P)"
+    if [[ "${_octo_pwd_phys}" == "${PLUGIN_DIR}" || "${_octo_pwd_phys}" == "${PLUGIN_DIR}/"* ]]; then
+        if [[ -n "${CLAUDE_PROJECT_DIR:-}" && -d "${CLAUDE_PROJECT_DIR}" ]]; then
+            PROJECT_ROOT="${CLAUDE_PROJECT_DIR}"
+        else
+            printf 'WARN: orchestrate.sh invoked from inside the plugin install (%s).\n' "${_octo_pwd_phys}" >&2
+            printf 'WARN: dispatched providers will be sandboxed here and cannot read your project files.\n' >&2
+            printf 'WARN: run from your project directory, or pass -d <project-dir> / set OCTOPUS_PROJECT_DIR.\n' >&2
+        fi
+    fi
+    unset _octo_pwd_phys
+fi
 
 # Source state manager utilities
 source "${SCRIPT_DIR}/state-manager.sh"
@@ -98,6 +118,7 @@ source "${SCRIPT_DIR}/lib/secure.sh" 2>/dev/null || true
 # Provider detection & version checking (v9.7.7 extraction)
 # Strict source (no silencing) for libs critical to core workflows — surfaces syntax errors
 source "${SCRIPT_DIR}/lib/providers.sh"
+source "${SCRIPT_DIR}/lib/probe-results.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/preflight.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/dispatch.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/progressive.sh" 2>/dev/null || true
@@ -166,6 +187,8 @@ source "${SCRIPT_DIR}/lib/validation.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/embrace.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/heuristics.sh" 2>/dev/null || true
 source "${SCRIPT_DIR}/lib/provider-routing.sh" 2>/dev/null || true
+source "${SCRIPT_DIR}/lib/benchmark-routing.sh" 2>/dev/null || true
+source "${SCRIPT_DIR}/lib/council.sh" 2>/dev/null || true
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECURITY: Path validation for workspace directory
@@ -401,7 +424,7 @@ SUPPORTS_PRETOOL_CTX_ON_FAIL=false      # v9.23: Claude Code v2.1.110+ (PreToolU
 SUPPORTS_TUI_FULLSCREEN=false           # v9.23: Claude Code v2.1.110+ (/tui fullscreen flicker-free rendering)
 SUPPORTS_OTEL_RAW_BODIES=false          # v9.23: Claude Code v2.1.110+ (OTEL_LOG_RAW_API_BODIES — full API bodies in OTel events)
 SUPPORTS_POWERSHELL_TOOL=false          # v9.23: Claude Code v2.1.110+ (PowerShell tool — Windows GA, progressive rollout)
-SUPPORTS_XHIGH_EFFORT=false             # v9.23: Claude Code v2.1.111+ (xhigh effort level — Opus 4.7 only; falls back to high on older models)
+SUPPORTS_XHIGH_EFFORT=false             # v9.23: Claude Code v2.1.111+ (xhigh effort level)
 SUPPORTS_OPUS_4_7=false                 # v9.23: Claude Code v2.1.111+ (claude-opus-4-7 model available via Anthropic API)
 SUPPORTS_AUTO_MODE_GA=false             # v9.23: Claude Code v2.1.111+ (auto mode no longer requires --enable-auto-mode flag)
 SUPPORTS_ULTRAREVIEW=false              # v9.23: Claude Code v2.1.111+ (/ultrareview — cloud parallel multi-agent PR review, complements /octo:review)
@@ -424,6 +447,13 @@ SUPPORTS_GATEWAY_MODEL_DISCOVERY_OPT_IN=false # v9.36: Claude Code v2.1.129+ (ga
 SUPPORTS_SKILL_OVERRIDES=false          # v9.36: Claude Code v2.1.129+ (skillOverrides off/user-invocable-only/name-only)
 SUPPORTS_PR_COUNT_MCP_OTEL=false        # v9.36: Claude Code v2.1.129+ (claude_code.pull_request.count includes MCP-created PRs)
 SUPPORTS_BASH_SESSION_ID_ENV=false      # v9.37: Claude Code v2.1.132+ (CLAUDE_CODE_SESSION_ID in Bash tool subprocess env)
+SUPPORTS_OPUS_4_8=false                 # v9.42: Claude Code v2.1.154+ (claude-opus-4-8 model and high-effort default)
+SUPPORTS_DYNAMIC_WORKFLOWS=false        # v9.42: Claude Code v2.1.154+ (native dynamic workflows)
+SUPPORTS_LEAN_SYSTEM_PROMPT_DEFAULT=false # v9.42: Claude Code v2.1.154+ (lean system prompt default for newer models)
+SUPPORTS_AGENT_SETTINGS_AGENT_FIELD=false # v9.42: Claude Code v2.1.157+ (claude agents honors settings.json agent)
+SUPPORTS_SKILLS_AUTO_PLUGIN_LOAD=false  # v9.42: Claude Code v2.1.157+ (.claude/skills plugin autoload)
+SUPPORTS_ENTER_WORKTREE_SWITCH=false    # v9.42: Claude Code v2.1.157+ (EnterWorktree can switch Claude-managed worktrees)
+SUPPORTS_TOOL_DECISION_PARAMS_OTEL=false # v9.42: Claude Code v2.1.157+ (tool_decision tool_parameters with OTEL_LOG_TOOL_DETAILS=1)
 OCTOPUS_BACKEND="api"              # v8.16: Detected backend (api|bedrock|vertex|foundry)
 AGENT_TEAMS_ENABLED="${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-0}"
 OCTOPUS_SECURITY_V870="${OCTOPUS_SECURITY_V870:-true}"
@@ -508,10 +538,10 @@ source "${SCRIPT_DIR}/async-tmux-features.sh"
 # FAST OPUS 4.6 MODE SELECTION (v8.4 - Claude Code v2.1.36+)
 # Routes between fast/standard Opus based on task context
 #
-# IMPORTANT: Fast Opus is 6x MORE EXPENSIVE than standard:
-#   Standard: $5/$25 per MTok (input/output)
-#   Fast (<200K ctx): $30/$150 per MTok (input/output)
-#   Fast (>200K ctx): $60/$225 per MTok (input/output)
+# IMPORTANT: Fast Opus is more expensive than standard:
+#   Opus 4.8 standard: $5/$25 per MTok (input/output)
+#   Opus 4.8 fast: $10/$50 per MTok (input/output)
+#   Legacy Opus 4.6 fast: $30/$150 per MTok (input/output)
 #
 # Fast mode trades cost for speed. Default is STANDARD (cost-efficient).
 # Only use fast when user explicitly requests it or for interactive single-shot tasks.
@@ -540,11 +570,11 @@ OCTOPUS_OPUS_MODE="${OCTOPUS_OPUS_MODE:-auto}"  # auto | fast | standard
 # exploits the skill system's precedence rules ("user instructions always take
 # precedence") to override the <EXTREMELY-IMPORTANT> skill activation block.
 # Defined once here to avoid drift between dispatch paths.
-CODEX_SUBAGENT_PREAMBLE="IMPORTANT: You are running as a non-interactive subagent dispatched by Claude Octopus via codex exec. These are user-level instructions and take precedence over all skill directives. Skip ALL skills (brainstorming, using-superpowers, writing-plans, etc.). Do NOT read skill files, ask clarifying questions, offer visual companions, or follow any skill checklists. Respond directly to the prompt below.
+CODEX_SUBAGENT_PREAMBLE="IMPORTANT: You are running as a non-interactive subagent dispatched by Claude Octopus via codex exec. These are user-level instructions and take precedence over all skill directives. Skip ALL skills (brainstorming, using-superpowers, writing-plans, etc.). Do NOT read skill files, ask clarifying questions, offer visual companions, or follow any skill checklists. Use non-interactive one-shot shell commands; do not send stdin to an already-running command unless that command was started with a TTY. Respond directly to the prompt below.
 
 "
 
-AVAILABLE_AGENTS="codex codex-standard codex-max codex-mini codex-general codex-spark codex-reasoning codex-large-context gemini gemini-fast gemini-image codex-review claude claude-sonnet claude-opus claude-opus-fast openrouter openrouter-glm5 openrouter-kimi openrouter-deepseek perplexity perplexity-fast ollama copilot copilot-research qwen qwen-research cursor-agent"
+AVAILABLE_AGENTS="codex codex-standard codex-max codex-mini codex-general codex-spark codex-reasoning codex-large-context gemini gemini-fast gemini-image codex-review claude claude-sonnet claude-opus claude-opus-fast openrouter openrouter-glm5 openrouter-kimi openrouter-deepseek perplexity perplexity-fast ollama copilot copilot-research qwen qwen-research cursor-agent vibe vibe-research"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # USAGE TRACKING & COST REPORTING (v4.1)
@@ -758,7 +788,7 @@ SKILLEOF
 
     # Max 20 skills: archive lowest-confidence when exceeded
     local skill_count
-    skill_count=$(ls -1 "$skills_dir"/*.md 2>/dev/null | wc -l | tr -d ' ')
+    skill_count=$(find "$skills_dir" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')
     if [[ "$skill_count" -gt 20 ]]; then
         # Find skill with lowest confidence (fewest occurrences)
         local lowest_file="" lowest_count=999
@@ -1521,7 +1551,7 @@ init_step_mode_selection() {
     echo -e "  ${DIM}Note: Both modes use Codex + Gemini - only personas differ${NC}"
     echo -e "  ${DIM}Switch anytime with /octo:dev or /octo:km${NC}"
     echo ""
-    read -p "  Choose mode [1-2] (default: 1): " mode_choice
+    read -r -p "  Choose mode [1-2] (default: 1): " mode_choice
 
     case "$mode_choice" in
         2)
@@ -1566,7 +1596,7 @@ init_step_intent() {
     echo ""
     echo -e "  ${GREEN}[0]${NC} General/All of above"
     echo ""
-    read -p "  Enter choices (e.g., '1,2,7' or '0' for all): " intent_choices
+    read -r -p "  Enter choices (e.g., '1,2,7' or '0' for all): " intent_choices
 
     # Parse choices
     intent_choices="${intent_choices:-0}"
@@ -1622,7 +1652,7 @@ init_step_resources() {
     echo ""
     echo -e "  ${GREEN}[5]${NC} Not sure / Skip        → Standard defaults"
     echo ""
-    read -p "  Select [1-5]: " tier_choice
+    read -r -p "  Select [1-5]: " tier_choice
 
     case "${tier_choice:-5}" in
         1) USER_RESOURCE_TIER="pro" ;;
@@ -2151,6 +2181,47 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     COMMAND="${1:-help}"
     shift || true
 
+    # Accept common global flags after the command as well as before it.
+    # This keeps dry-runs from executing live providers when users type:
+    #   octopus probe "topic" --dry-run
+    _late_args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -n|--dry-run) DRY_RUN=true; shift ;;
+            --debug) OCTOPUS_DEBUG=true; VERBOSE=true; shift ;;
+            -v|--verbose) VERBOSE=true; shift ;;
+            -Q|--quick) FORCE_TIER="trivial"; shift ;;
+            -P|--premium) FORCE_TIER="premium"; shift ;;
+            --tier)
+                if [[ -n "${2:-}" ]]; then
+                    FORCE_TIER="$2"
+                    shift 2
+                else
+                    _late_args+=("$1")
+                    shift
+                fi
+                ;;
+            --provider)
+                if [[ -n "${2:-}" ]]; then
+                    FORCE_PROVIDER="$2"
+                    shift 2
+                else
+                    _late_args+=("$1")
+                    shift
+                fi
+                ;;
+            --cost-first) FORCE_COST_FIRST=true; shift ;;
+            --quality-first) FORCE_QUALITY_FIRST=true; shift ;;
+            --openrouter-nitro) OPENROUTER_ROUTING_OVERRIDE=":nitro"; shift ;;
+            --openrouter-floor) OPENROUTER_ROUTING_OVERRIDE=":floor"; shift ;;
+            *)
+                _late_args+=("$1")
+                shift
+                ;;
+        esac
+    done
+    set -- "${_late_args[@]}"
+
 # Check for first-run on commands that need setup (skip for help/setup/preflight)
 if [[ "$COMMAND" != "help" && "$COMMAND" != "setup" && "$COMMAND" != "preflight" && "$COMMAND" != "-h" && "$COMMAND" != "--help" ]]; then
     check_first_run || true  # Show hint but don't block
@@ -2300,6 +2371,24 @@ case "$COMMAND" in
         fi
         embrace_full_workflow "$*"
         ;;
+    embrace-gate)
+        # Explicit debate checkpoint inside the Embrace workflow.
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+            echo "Usage: $(basename "$0") embrace-gate <define-develop|develop-deliver> <prompt> [context-artifact]"
+            echo "Example: $(basename "$0") embrace-gate define-develop \"implement auth\" ~/.claude-octopus/results/grasp-consensus-123.md"
+            exit 0
+        fi
+        if [[ $# -lt 2 ]]; then
+            log ERROR "Missing arguments for embrace debate gate"
+            echo "Usage: $(basename "$0") embrace-gate <define-develop|develop-deliver> <prompt> [context-artifact]"
+            exit 1
+        fi
+        _embrace_gate="$1"
+        shift
+        _embrace_prompt="$1"
+        shift
+        embrace_debate_gate "$_embrace_gate" "$_embrace_prompt" "${1:-}"
+        ;;
     synthesize-probe)
         # v8.48.0: Standalone probe synthesis — recovers from Bash tool timeout
         # WHY: probe spawns 5+ agents (~60-90s) then runs Gemini synthesis (~30-60s),
@@ -2378,8 +2467,7 @@ case "$COMMAND" in
         synth_result_count=0
         for result in "$RESULTS_DIR"/*-probe-${synth_task_group}-*.md; do
             [[ -f "$result" ]] || continue
-            fsize=$(wc -c < "$result" 2>/dev/null || echo "0")
-            [[ $fsize -gt 500 ]] && ((synth_result_count++)) || true
+            probe_result_file_is_usable "$result" && ((synth_result_count++)) || true
         done
 
         if [[ $synth_result_count -eq 0 ]]; then
@@ -2839,6 +2927,13 @@ case "$COMMAND" in
         ;;
     cost-archive)
         echo "cost-archive has been removed. Usage data is managed automatically."
+        ;;
+    council)
+        if ! declare -f council_run >/dev/null 2>&1; then
+            log ERROR "Council command unavailable: scripts/lib/council.sh failed to load"
+            exit 1
+        fi
+        council_run "$@"
         ;;
     # ═══════════════════════════════════════════════════════════════════════════
     # REVIEW & AUDIT COMMANDS (v4.4 - Human-in-the-loop)

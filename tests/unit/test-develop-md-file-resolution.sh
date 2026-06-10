@@ -50,7 +50,7 @@ assert_has 'trimmed_prompt=' \
 assert_has 'resolved_prompt="\$\{prompt\}' \
     "plan reference handling preserves surrounding user instructions"
 
-assert_has 'spawn_agent "codex" "\$resolved_prompt"' \
+assert_has 'build_tangle_subtask_prompt "\$resolved_prompt"' \
     "direct fallback receives resolved prompt"
 
 source "$WORKFLOWS"
@@ -79,10 +79,15 @@ fleet_dispatch_begin() { :; }
 fleet_dispatch_end() { :; }
 run_agent_sync() {
     printf '%s' "$2" > "$DECOMPOSE_CAPTURE_FILE"
-    printf '%s\n' "No numbered subtasks required"
+    printf '%s\n' "1. [CODING] Validate resolved plan context. Files: scripts/lib/workflows.sh"
 }
 validate_tangle_results() {
     CAPTURED_VALIDATE_PROMPT="$2"
+}
+spawn_agent_capture_pid() {
+    local task_id="$3"
+    printf '0\n' > "$WORKSPACE_DIR/.octo/agents/${task_id}.done"
+    printf '12345\n'
 }
 
 run_tangle_case() {
@@ -111,6 +116,29 @@ else
     test_fail "validate_tangle_results received raw prompt instead of resolved content"
 fi
 
+test_case "plan-prefixed Markdown references inject even without a plan-like filename"
+notes_file="$RESULTS_DIR/implementation-notes.md"
+printf '%s\n' "Fix scripts/lib/testing.sh fallback behavior." > "$notes_file"
+run_tangle_case "implement plan:$notes_file next"
+if [[ "$CAPTURED_DECOMPOSE_PROMPT" == *"implement plan:$notes_file next"* ]] && \
+   [[ "$CAPTURED_DECOMPOSE_PROMPT" == *"Fix scripts/lib/testing.sh fallback behavior."* ]]; then
+    test_pass
+else
+    test_fail "explicit plan: reference did not inject non-plan Markdown content"
+fi
+
+test_case "bare plan.md references inject content"
+bare_plan_dir="$RESULTS_DIR/bare-plan"
+mkdir -p "$bare_plan_dir"
+bare_plan_file="$bare_plan_dir/plan.md"
+printf '%s\n' "Apply the bare plan.md workflow fix." > "$bare_plan_file"
+run_tangle_case "implement $bare_plan_file"
+if [[ "$CAPTURED_DECOMPOSE_PROMPT" == *"Apply the bare plan.md workflow fix."* ]]; then
+    test_pass
+else
+    test_fail "bare plan.md was not treated as an eligible plan file"
+fi
+
 test_case "wildcard-looking Markdown tokens are not glob-expanded"
 glob_dir="$RESULTS_DIR/glob-case"
 mkdir -p "$glob_dir"
@@ -121,6 +149,16 @@ printf '%s\n' "This file should not be injected from a wildcard prompt." > "$glo
 )
 if [[ "$CAPTURED_DECOMPOSE_PROMPT" == *"This file should not be injected"* ]]; then
     test_fail "wildcard token was expanded and injected as a plan file"
+else
+    test_pass
+fi
+
+test_case "plain Markdown filenames ending in plan.md are not treated as plans unless deliberate"
+false_positive_file="$RESULTS_DIR/floorplan.md"
+printf '%s\n' "This floorplan note must not be injected automatically." > "$false_positive_file"
+run_tangle_case "review $false_positive_file for context"
+if [[ "$CAPTURED_DECOMPOSE_PROMPT" == *"This floorplan note must not be injected automatically."* ]]; then
+    test_fail "non-deliberate floorplan.md content was injected as a plan"
 else
     test_pass
 fi
@@ -140,7 +178,7 @@ log() {
     printf '%s %s\n' "${1:-}" "${2:-}" >> "$LOG_CAPTURE_FILE"
 }
 run_agent_sync() {
-    printf '%s\n' "1. [CODING] stalled implementation"
+    printf '%s\n' "1. [CODING] stalled implementation. Files: scripts/lib/workflows.sh"
 }
 spawn_agent_capture_pid() {
     printf '%s\n' "999999"

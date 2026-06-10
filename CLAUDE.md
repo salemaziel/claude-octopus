@@ -226,43 +226,50 @@ Providers:
 ## Cost Awareness
 
 Always be mindful that external CLIs cost money:
-- 🔴 Codex: ~$0.01-0.15 per query depending on model (GPT-5.4 $2.50/$15 MTok, GPT-5.3-Codex $1.75/$14, Mini $0.25/$2.00 MTok)
-- 🟡 Gemini: ~$0.01-0.03 per query (Gemini Pro)
+- 🔴 Codex: ~$0.01-0.30 per query depending on model (GPT-5.5 $5/$30 MTok — premium default as of v9.44, GPT-5.4 $2.50/$15, GPT-5.3-Codex $1.75/$14, Mini $0.25/$2.00 MTok)
+- 🟡 Gemini: ~$0.01-0.03 per query (Gemini 3.1 Pro Preview $2.50/$10 MTok, 3 Flash Preview $0.25/$1)
 - 🟣 Perplexity: ~$0.01-0.05 per query (Sonar Pro $3/$15 MTok, Sonar $1/$1 MTok)
 - 🔵 Claude (Sonnet 4.6): Included with Claude Code subscription
-- 🔵 Claude (Opus 4.7, default when `SUPPORTS_OPUS_4_7=true`): $5/$25 per MTok input/output. No fast variant. 1M context native. Use `xhigh` effort for coding/agentic work (plugin default), `high` for knowledge work.
+- 🔵 Claude (Fable 5, Mythos-class, opt-in via `OCTOPUS_OPUS_MODEL=claude-fable-5`): **$10/$50 per MTok** — 2x Opus 4.8 cost. 1M context, 128K output. Never auto-selected. Note: Anthropic retains prompts/outputs up to 30 days for safety classifiers.
+- 🔵 Claude (Opus 4.8, default when `SUPPORTS_OPUS_4_8=true`): $5/$25 per MTok input/output. 1M context native. Use `high` effort by default; use `xhigh` for hard implementation, deep review, and long-running asynchronous workflows.
+- 🔵 Claude (Opus 4.8 Fast): $10/$50 per MTok — 2x standard cost for roughly 2.5x output speed. Use only when latency matters.
+- 🔵 Claude (Opus 4.7, legacy/current-minus-one): $5/$25 per MTok input/output. Used automatically on Claude Code versions before 2.1.154 when supported.
 - 🔵 Claude (Opus 4.6, legacy): $5/$25 per MTok — still selectable via `OCTOPUS_OPUS_MODEL=claude-opus-4.6` or `claude-opus-legacy` agent type
-- 🔵 Claude (Opus 4.6 Fast): **$30/$150 per MTok** (6x standard) — lower latency, extra-usage billing (v2.1.36+). Only available on 4.6; no 4.7 equivalent.
+- 🔵 Claude (Opus 4.6 Fast, legacy): **$30/$150 per MTok** (6x standard) — lower latency, extra-usage billing for pinned 4.6 sessions.
 - 🟤 OpenCode: Variable cost — free for native models, uses backend provider pricing when routing to OpenAI/Google
 
-Note: Some OpenAI models (o-series reasoning, gpt-4.1, gpt-5.4-pro) require API keys and are NOT available via ChatGPT subscription/OAuth auth.
+Note: Some OpenAI models (o-series reasoning, gpt-4.1, gpt-5.4-pro, gpt-5.5-pro) require API keys and are NOT available via ChatGPT subscription/OAuth auth.
 
 For simple tasks that don't need multi-AI perspectives, suggest using Claude directly without orchestration.
 
-### Opus 4.7 Effort Levels (Claude Code v2.1.111+)
+### Opus 4.8 Effort Levels (Claude Code v2.1.154+)
 
-Opus 4.7 introduces a new `xhigh` effort level between `high` and `max`. Claude Code's default is `xhigh` on 4.7. The plugin maps phases to effort:
+Opus 4.8 defaults to `high` effort across Claude Code and the API. Claude Code still supports `xhigh` between `high` and `max`; the plugin reserves it for work that benefits from deeper reasoning:
 
-- **probe / discover** — `medium` (breadth > depth for research)
-- **grasp / define** — `medium`
-- **tangle / develop** — `xhigh` for complex work, `medium` for trivial
-- **ink / deliver** — `xhigh` for security/architecture reviews, `medium` otherwise
+- **probe / discover** — `high`
+- **grasp / define** — `high`, or `xhigh` for explicitly complex planning
+- **tangle / develop** — `xhigh` for complex implementation, `high` otherwise
+- **ink / deliver** — `xhigh` for security/architecture/deep review, `high` otherwise
 
-`xhigh` silently falls back to `high` on Opus 4.6, so the plugin sets `xhigh` unconditionally and lets Claude Code handle the downgrade. Override per-session with `OCTOPUS_EFFORT_OVERRIDE=low|medium|high|xhigh|max`.
+`xhigh` falls back to `high` on older models where Claude Code does not expose it. Override per-session with `OCTOPUS_EFFORT_OVERRIDE=low|medium|high|xhigh|max`.
 
-### Fast Opus 4.6 Mode (Claude Code v2.1.36+, Opus 4.6 only)
+### Fast Opus Mode
 
-**WARNING: Fast Opus is 6x more expensive than standard Opus.** It uses extra-usage billing at $30/$150 per MTok (vs $5/$25 standard). It provides lower latency but identical quality. **Not available on Opus 4.7** — fast mode is exclusively a 4.6 feature.
+Fast mode is a latency control, not a reasoning-effort control. On Opus 4.8 it costs $10/$50 per MTok (2x standard) and should be used only when a human is actively waiting. Legacy Opus 4.6 fast remains much more expensive at $30/$150 per MTok.
 
 When `SUPPORTS_FAST_OPUS=true` is detected, orchestrate.sh routes conservatively:
-- **Default: Opus 4.7 standard** for all multi-phase workflows (embrace, discover, develop, etc.)
-- **Fast mode (4.6): only** for interactive single-shot Opus queries where the user is actively waiting and latency matters more than the new 4.7 capabilities
+- **Default: Opus 4.8 standard** for all multi-phase workflows (embrace, discover, develop, etc.)
+- **Fast mode: only** for interactive single-shot Opus queries where the user is actively waiting and latency matters
 - **Never fast in autonomous/background mode** (no human waiting = no latency benefit)
-- **User override**: Set `OCTOPUS_OPUS_MODE=fast` to force Opus 4.6 fast (costly!)
-- **User override**: Set `OCTOPUS_OPUS_MODE=standard` to force standard 4.7 everywhere (default behavior)
+- **User override**: Set `OCTOPUS_OPUS_MODE=fast` to force fast mode when supported
+- **User override**: Set `OCTOPUS_OPUS_MODE=standard` to force standard Opus everywhere (default behavior)
 - **User override**: Set `OCTOPUS_OPUS_MODEL=claude-opus-4.6` to pin legacy 4.6 standard across the board
 
 Always warn users about the cost difference before enabling fast mode.
+
+### Dynamic Workflows (Claude Code v2.1.154+)
+
+Claude Code dynamic workflows are the right native path for huge single-Claude codebase migrations. Use Octopus when the job needs multi-provider disagreement, council deliberation, adversarial review, external model validation, or provider-specific blind-spot checks. Do not wrap a native dynamic workflow inside Octopus unless the handoff boundary is explicit.
 
 ---
 
@@ -290,3 +297,52 @@ Skills use the **Validation Gate Pattern** to ensure multi-LLM dispatch actually
 4. **Fail loud**: If no synthesis files found, report "VALIDATION FAILED — multi-LLM dispatch did not execute" instead of silently falling back to Claude-only
 
 > Developer reference (modular config, E2E testing, enforcement patterns): see `docs/DEVELOPER.md`
+
+
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
+## Beads Issue Tracker
+
+This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
+
+### Quick Reference
+
+```bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --claim  # Claim work
+bd close <id>         # Complete work
+```
+
+### Rules
+
+- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
+- Run `bd prime` for detailed command reference and session close protocol
+- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+
+**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
+
+## Session Completion
+
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+**MANDATORY WORKFLOW:**
+
+1. **File issues for remaining work** - Create issues for anything that needs follow-up
+2. **Run quality gates** (if code changed) - Tests, linters, builds
+3. **Update issue status** - Close finished work, update in-progress items
+4. **PUSH TO REMOTE** - This is MANDATORY:
+   ```bash
+   git pull --rebase
+   git push
+   git status  # MUST show "up to date with origin"
+   ```
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
+
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds
+<!-- END BEADS INTEGRATION -->

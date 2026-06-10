@@ -3,6 +3,11 @@
 # Extracted from orchestrate.sh (v9.5.0+)
 # Sourced by orchestrate.sh — do not run directly.
 
+if ! type probe_result_file_status >/dev/null 2>&1; then
+    _octo_probe_results_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/probe-results.sh"
+    [[ -f "$_octo_probe_results_lib" ]] && source "$_octo_probe_results_lib"
+fi
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # RESULT RANKING (v8.49.0)
 # Ranks result files by quality signals WITHOUT deleting any content.
@@ -102,7 +107,7 @@ rank_results_by_signals() {
         [[ "$result" == *.raw-concat* ]] && continue
         [[ "$result" == *.partial-* ]] && continue
         [[ -n "$filter" && "$result" != *"$filter"* ]] && continue
-        grep -q "Status: FAILED" "$result" 2>/dev/null && continue
+        probe_result_file_is_usable "$result" || continue
         type octo_file_has_provider_rejection >/dev/null 2>&1 && octo_file_has_provider_rejection "$result" && continue
 
         local score
@@ -112,6 +117,125 @@ rank_results_by_signals() {
 
     # Sort descending by score, output paths only
     printf '%s\n' "${scored[@]}" | sort -t'|' -k1 -rn | cut -d'|' -f2
+}
+
+probe_synthesis_sanitize_context() {
+    sed \
+        -e 's/\[Auto-synthesis failed - raw findings below\]/[Prior auto-synthesis failed; raw fallback omitted from compact probe context]/g' \
+        -e 's/\[Synthesis failed - raw results attached\]/[Prior synthesis failed; raw fallback omitted from compact probe context]/g'
+}
+
+probe_synthesis_append_excerpt() {
+    local file="$1"
+    local max_chars="$2"
+    local score="${3:-}"
+    local size
+
+    [[ -f "$file" ]] || return 0
+    size=$(wc -c < "$file" 2>/dev/null | tr -d '[:space:]')
+    size="${size:-0}"
+
+    echo "## Source: $(basename "$file")${score:+ [Quality: ${score}/100]}"
+    echo "- File: ${file}"
+    echo "- Size: ${size} bytes"
+    if [[ "$size" =~ ^[0-9]+$ && "$size" -gt "$max_chars" ]]; then
+        echo "- Included: first ${max_chars} bytes (truncated)"
+    else
+        echo "- Included: full file"
+    fi
+    echo ""
+    echo '```markdown'
+    if [[ "$size" =~ ^[0-9]+$ && "$size" -gt "$max_chars" ]]; then
+        head -c "$max_chars" "$file" 2>/dev/null | probe_synthesis_sanitize_context
+        echo ""
+        echo "[... truncated by probe synthesis context: original ${size} bytes, included ${max_chars} bytes ...]"
+    else
+        probe_synthesis_sanitize_context < "$file"
+    fi
+    echo '```'
+    echo ""
+}
+
+build_probe_synthesis_context() {
+    local task_group="$1"
+    local max_file="${OCTOPUS_PROBE_SYNTHESIS_FILE_CHARS:-24000}"
+    local max_total="${OCTOPUS_PROBE_SYNTHESIS_CONTEXT_CHARS:-120000}"
+
+    [[ "$max_file" =~ ^[0-9]+$ ]] || max_file=24000
+    [[ "$max_total" =~ ^[0-9]+$ ]] || max_total=120000
+    max_file=$((10#$max_file))
+    max_total=$((10#$max_total))
+    [[ "$max_file" -lt 1000 ]] && max_file=1000
+    [[ "$max_total" -lt 4000 ]] && max_total=4000
+
+    local tmp_context
+    tmp_context=$(mktemp "${TMPDIR:-/tmp}/octo-probe-synthesis.XXXXXX") || return 1
+
+    local result_count=0
+    {
+        echo "# Compact Probe Synthesis Context"
+        echo ""
+        echo "This context is bounded before synthesis. Full raw probe artifacts remain on disk in RESULTS_DIR."
+        echo ""
+        echo "## Context Budget"
+        echo "- Max per source file: ${max_file} bytes"
+        echo "- Max total context: ${max_total} bytes"
+        echo ""
+
+        local ranked_file
+        while IFS= read -r ranked_file; do
+            [[ -z "$ranked_file" ]] && continue
+            [[ ! -f "$ranked_file" ]] && continue
+            probe_result_file_is_usable "$ranked_file" || continue
+            type octo_file_has_provider_rejection >/dev/null 2>&1 && octo_file_has_provider_rejection "$ranked_file" && continue
+            local score
+            score=$(score_result_file "$ranked_file")
+            probe_synthesis_append_excerpt "$ranked_file" "$max_file" "$score"
+            ((result_count++)) || true
+        done < <(rank_results_by_signals "$RESULTS_DIR" "probe-${task_group}")
+    } > "$tmp_context"
+
+    local total_size
+    total_size=$(wc -c < "$tmp_context" 2>/dev/null | tr -d '[:space:]')
+    total_size="${total_size:-0}"
+
+    if [[ "$total_size" =~ ^[0-9]+$ && "$total_size" -gt "$max_total" ]]; then
+        head -c "$max_total" "$tmp_context" 2>/dev/null
+        echo ""
+        echo ""
+        echo "[... compact probe synthesis context truncated: original ${total_size} bytes, included ${max_total} bytes ...]"
+    else
+        cat "$tmp_context"
+    fi
+
+    rm -f "$tmp_context"
+}
+
+build_probe_fallback_synthesis() {
+    local original_prompt="$1"
+    local result_count="$2"
+    local usable_results="$3"
+    local total_content_size="$4"
+    local compact_context="$5"
+
+    cat <<EOF
+Automated probe synthesis unavailable.
+
+## Key Findings
+The synthesis provider did not produce a coherent discovery summary. This fallback is intentionally compact and does not attach full raw probe artifacts.
+
+## Source Coverage
+- Usable research threads included: ${result_count}
+- Usable results reported by probe: ${usable_results}
+- Raw source bytes considered: ${total_content_size}
+- Full raw artifacts remain available in RESULTS_DIR for manual inspection.
+
+## Original Question
+${original_prompt}
+
+## Compact Source Context
+${compact_context}
+EOF
 }
 
 aggregate_results() {
@@ -140,7 +264,7 @@ aggregate_results() {
             [[ "$result" == *aggregate* ]] && continue
             [[ "$result" == *.raw-concat* ]] && continue
             [[ -n "$filter" && "$result" != *"$filter"* ]] && continue
-            grep -q "Status: FAILED" "$result" 2>/dev/null && continue
+            probe_result_file_is_usable "$result" || continue
             type octo_file_has_provider_rejection >/dev/null 2>&1 && octo_file_has_provider_rejection "$result" && continue
             ranked_files+="$result"$'\n'
         done
@@ -154,7 +278,7 @@ aggregate_results() {
     while IFS= read -r result; do
         [[ -z "$result" ]] && continue
         [[ ! -f "$result" ]] && continue
-        grep -q "Status: FAILED" "$result" 2>/dev/null && continue
+        probe_result_file_is_usable "$result" || continue
         type octo_file_has_provider_rejection >/dev/null 2>&1 && octo_file_has_provider_rejection "$result" && continue
         local score
         score=$(score_result_file "$result")
@@ -254,26 +378,20 @@ synthesize_probe_results() {
 
     log INFO "Synthesizing research findings..."
 
-    # v7.19.0 P1.1: Gather all probe results with size filtering
+    # v7.19.0 P1.1: Gather probe result metrics with size filtering.
+    # Do not concatenate raw artifacts here; synthesis gets a bounded context below.
     local results=""
     local result_count=0
     local total_content_size=0
     for result in "$RESULTS_DIR"/*-probe-${task_group}-*.md; do
         [[ -f "$result" ]] || continue
-        grep -q "Status: FAILED" "$result" 2>/dev/null && { log DEBUG "Skipping $result (failed status)"; continue; }
+        probe_result_file_is_usable "$result" || { log DEBUG "Skipping $result (unusable probe output)"; continue; }
         type octo_file_has_provider_rejection >/dev/null 2>&1 && octo_file_has_provider_rejection "$result" && { log DEBUG "Skipping $result (provider rejection)"; continue; }
 
-        # Check if file has meaningful content (>500 bytes of actual content)
         local file_size
         file_size=$(wc -c < "$result" 2>/dev/null || echo "0")
-
-        if [[ $file_size -gt 500 ]]; then
-            results+="$(<"$result")\n\n---\n\n"
-            ((result_count++)) || true
-            total_content_size=$((total_content_size + file_size))
-        else
-            log DEBUG "Skipping $result (too small: ${file_size}B)"
-        fi
+        ((result_count++)) || true
+        total_content_size=$((total_content_size + file_size))
     done
 
     # v7.19.0 P1.1: Graceful degradation - proceed with 2+ results
@@ -295,24 +413,14 @@ synthesize_probe_results() {
         log INFO "All $result_count results available for synthesis ($(numfmt --to=iec-i --suffix=B $total_content_size 2>/dev/null || echo "${total_content_size}B"))"
     fi
 
-    # v8.49.0: Rank results by quality signals before synthesis
-    # Re-collect results in ranked order so the synthesis LLM sees best content first
-    local ranked_results=""
-    local ranked_file
-    while IFS= read -r ranked_file; do
-        [[ -z "$ranked_file" ]] && continue
-        [[ ! -f "$ranked_file" ]] && continue
-        grep -q "Status: FAILED" "$ranked_file" 2>/dev/null && continue
-        type octo_file_has_provider_rejection >/dev/null 2>&1 && octo_file_has_provider_rejection "$ranked_file" && continue
-        local file_size
-        file_size=$(wc -c < "$ranked_file" 2>/dev/null || echo "0")
-        [[ $file_size -le 500 ]] && continue
-        local score
-        score=$(score_result_file "$ranked_file")
-        ranked_results+="--- [Quality: ${score}/100] ---\n$(<"$ranked_file")\n\n"
-    done < <(rank_results_by_signals "$RESULTS_DIR" "probe-${task_group}")
-    # Use ranked results if available, fall back to original collection
-    [[ -n "$ranked_results" ]] && results="$ranked_results"
+    # v8.49.0: Rank results by quality signals before synthesis.
+    # Keep the synthesis prompt bounded; full raw files remain on disk.
+    local compact_results
+    if compact_results=$(build_probe_synthesis_context "$task_group") && [[ -n "$compact_results" ]]; then
+        results="$compact_results"
+    else
+        results="# Compact Probe Synthesis Context"$'\n\n'"No bounded probe excerpts could be collected. Inspect RESULTS_DIR for raw artifacts."
+    fi
 
     # Use Gemini for intelligent synthesis
     # v8.49.0: Enhanced prompt with structured output, minority opinion preservation,
@@ -343,9 +451,9 @@ Research findings:
 $results"
 
     local synthesis
-    synthesis=$(run_agent_sync "gemini" "$synthesis_prompt" 180) || {
-        log WARN "Synthesis failed, using concatenation fallback"
-        synthesis="[Auto-synthesis failed - raw findings below]\n\n$results"
+    synthesis=$(run_agent_sync "gemini" "$synthesis_prompt" "${TIMEOUT:-300}") || {
+        log WARN "Synthesis failed, using compact fallback"
+        synthesis=$(build_probe_fallback_synthesis "$original_prompt" "$result_count" "$usable_results" "$total_content_size" "$results")
     }
 
     cat > "$synthesis_file" << EOF
@@ -366,9 +474,12 @@ EOF
     cache_key=$(get_cache_key "$original_prompt")
     save_to_cache "$cache_key" "$synthesis_file"
 
+    local _green="${GREEN:-}"
+    local _cyan="${CYAN:-}"
+    local _nc="${NC:-}"
     echo ""
-    echo -e "${GREEN}✓${NC} Probe synthesis saved to: $synthesis_file"
-    echo -e "${CYAN}♻️${NC}  Cached for 1 hour (reuse if prompt unchanged)"
+    echo -e "${_green}✓${_nc} Probe synthesis saved to: $synthesis_file"
+    echo -e "${_cyan}♻️${_nc}  Cached for 1 hour (reuse if prompt unchanged)"
     echo ""
     guard_output "$(<"$synthesis_file")" "probe-synthesis"
 }

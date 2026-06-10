@@ -166,6 +166,13 @@ sanitize_review_id() {
 # Only allows whitelisted command prefixes
 validate_agent_command() {
     local cmd="$1"
+    local cmd_executable="${cmd%%[[:space:]]*}"
+
+    # Allow the vibe shim only when it is the executable token, not when it
+    # appears later in the command string.
+    if [[ "$cmd_executable" == */vibe-exec.sh ]]; then
+        return 0
+    fi
 
     # Whitelist of allowed command prefixes (v7.19.0: tightened to exact patterns)
     case "$cmd" in
@@ -182,6 +189,8 @@ validate_agent_command() {
         "copilot "*|"copilot")   # GitHub Copilot CLI
             return 0 ;;
         "opencode "*|"opencode")  # v9.11.0: OpenCode CLI multi-provider router
+            return 0 ;;
+        "vibe "*|"vibe")          # Mistral Vibe interactive CLI
             return 0 ;;
         "ollama "*|"ollama")      # Ollama local LLM
             return 0 ;;

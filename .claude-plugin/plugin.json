@@ -1,7 +1,7 @@
 {
   "name": "octo",
-  "version": "9.38.0",
-  "description": "v9.38.0 \u2014 Agent summaries, prompt-size preflight, research fanout, and Codex-compatible portable skills. Run /octo:setup.",
+  "version": "9.44.0",
+  "description": "v9.44.0 \u2014 Patch release for cursor-agent smoke checks in untrusted workspaces. Run /octo:setup.",
   "author": {
     "name": "nyldn",
     "url": "https://github.com/nyldn"
@@ -39,6 +39,7 @@
     "./skills/skill-content-pipeline",
     "./skills/skill-context-detection",
     "./skills/skill-copilot-provider",
+    "./skills/skill-council",
     "./skills/skill-cost-projections",
     "./skills/skill-coverage-audit",
     "./skills/skill-debate",
@@ -83,6 +84,7 @@
     "./.claude/commands/pipeline.md",
     "./.claude/commands/brainstorm.md",
     "./.claude/commands/meta-prompt.md",
+    "./.claude/commands/preflight.md",
     "./.claude/commands/prd-score.md",
     "./.claude/commands/setup.md",
     "./.claude/commands/km.md",
@@ -110,7 +112,6 @@
     "./.claude/commands/parallel.md",
     "./.claude/commands/sentinel.md",
     "./.claude/commands/claw.md",
-    "./.claude/commands/doctor.md",
     "./.claude/commands/factory.md",
     "./.claude/commands/staged-review.md",
     "./.claude/commands/design-ui-ux.md",
@@ -122,6 +123,7 @@
     "./.claude/commands/guard.md",
     "./.claude/commands/unfreeze.md",
     "./.claude/commands/costs.md",
+    "./.claude/commands/council.md",
     "./.claude/commands/retro.md",
     "./.claude/commands/history.md",
     "./.claude/commands/discipline.md"

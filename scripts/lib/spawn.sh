@@ -276,8 +276,9 @@ ${heuristic_ctx}"
         return "$_budget_rc"
     fi
 
-    # v8.4: Auto-route claude-opus to fast mode when appropriate
-    # WARNING: Fast Opus is 6x more expensive ($30/$150 vs $5/$25 per MTok)
+    # v8.4/v9.42: Auto-route claude-opus to fast mode when appropriate.
+    # Opus 4.8 fast is 2x standard ($10/$50 vs $5/$25 per MTok); legacy 4.6
+    # fast remains 6x standard.
     # Only used for interactive single-shot tasks, never for multi-phase workflows
     if [[ "$agent_type" == "claude-opus" ]] && [[ "$SUPPORTS_FAST_OPUS" == "true" ]]; then
         local opus_tier
@@ -288,8 +289,12 @@ ${heuristic_ctx}"
         opus_mode=$(select_opus_mode "$phase" "$opus_tier" "$session_autonomy")
         if [[ "$opus_mode" == "fast" ]]; then
             agent_type="claude-opus-fast"
-            log "INFO" "Auto-routing to Opus 4.6 Fast mode (phase=$phase, tier=$opus_tier, autonomy=$session_autonomy)"
-            log "WARN" "Fast Opus is 6x more expensive: \$30/\$150 per MTok vs \$5/\$25 standard"
+            log "INFO" "Auto-routing to Opus Fast mode (phase=$phase, tier=$opus_tier, autonomy=$session_autonomy)"
+            if [[ "${SUPPORTS_OPUS_4_8:-false}" == "true" && "${OCTOPUS_OPUS_MODEL:-}" != "claude-opus-4.6" ]]; then
+                log "WARN" "Opus 4.8 fast is 2x standard: \$10/\$50 per MTok vs \$5/\$25 standard"
+            else
+                log "WARN" "Legacy Opus 4.6 fast is 6x standard: \$30/\$150 per MTok vs \$5/\$25 standard"
+            fi
         fi
     fi
 
@@ -542,6 +547,10 @@ ${heuristic_ctx}"
         if [[ "$agent_type" == gemini* ]] || [[ "$agent_type" == cursor-agent* ]] || [[ "$agent_type" == copilot* ]] || [[ "$agent_type" == qwen* ]]; then
             cmd_array+=(-p "")
         fi
+        # Belt-and-suspenders: bypass Gemini's interactive trust check in headless mode (#405)
+        if [[ "$agent_type" == gemini* ]]; then
+            cmd_array+=(--skip-trust)
+        fi
 
         local auth_attempt=0
         local exit_code=0
@@ -596,6 +605,14 @@ ${heuristic_ctx}"
             break
         done
 
+        if [[ $exit_code -ne 0 && -s "$temp_errors" ]]; then
+            local stderr_first_line=""
+            stderr_first_line=$(grep -m1 '[^[:space:]]' "$temp_errors" 2>/dev/null | head -c 240 || true)
+            if [[ -n "$stderr_first_line" ]]; then
+                log "ERROR" "[$agent_type] provider stderr: $stderr_first_line"
+            fi
+        fi
+
         # v8.16: Log auth retry metrics if retries occurred
         if [[ $auth_attempt -gt 0 ]]; then
             log "INFO" "Auth retries used: $auth_attempt/$max_auth_retries (backend=$OCTOPUS_BACKEND, exit=$exit_code)"
@@ -644,6 +661,12 @@ ${heuristic_ctx}"
                     -e '^Loaded cached credentials' \
                     -e '^Run /mcp' \
                     "$temp_output" >> "$result_file" 2>/dev/null || cat "$temp_output" >> "$result_file"
+            fi
+            if [[ "$agent_type" == codex* ]] \
+                && ! grep -q '[[:alnum:]]' "$temp_output" 2>/dev/null \
+                && type octo_file_has_codex_recoverable_stderr >/dev/null 2>&1 \
+                && octo_file_has_codex_recoverable_stderr "$temp_errors"; then
+                echo "(Codex response was emitted on stderr; see Warnings/Errors transcript below.)" >> "$result_file"
             fi
 
             # v8.7.0: Add trust marker for external CLI output
@@ -809,7 +832,7 @@ ${heuristic_ctx}"
             elif [[ -s "$raw_output" ]]; then
                 cat "$raw_output" >> "$result_file"
             else
-                echo "(no output captured)" >> "$result_file"
+                echo "(no output captured — ${agent_type} produced no stdout; check provider auth/config with 'orchestrate.sh doctor')" >> "$result_file"
             fi
             echo '```' >> "$result_file"
             echo "" >> "$result_file"

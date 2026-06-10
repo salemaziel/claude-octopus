@@ -1,6 +1,6 @@
 # Command and Usage Reference
 
-Complete reference for all 48 Claude Octopus slash commands, CLI tools (`octopus` + `octo-compress`), plus activation rules, provider indicators, and the project-lifecycle features that are triggered by natural language rather than slash commands.
+Complete reference for all 49 Claude Octopus slash commands, CLI tools (`octopus` + `octo-compress`), plus activation rules, provider indicators, and the project-lifecycle features that are triggered by natural language rather than slash commands.
 
 ---
 
@@ -41,6 +41,7 @@ All slash commands use the `/octo:` namespace. The smart router command is `/oct
 |---------|-------------|
 | `/octo:research` | Deep research with multi-source synthesis |
 | `/octo:brainstorm` | Creative thought partner brainstorming session |
+| `/octo:council` | Persona-based multi-LLM council with budget, quorum, veto, and implementation gates |
 | `/octo:debate` | AI Debate Hub — four-way debates (Claude + Gemini + Codex) |
 | `/octo:prd` | Write an AI-optimized PRD with 100-point scoring |
 | `/octo:prd-score` | Score an existing PRD against the framework |
@@ -171,6 +172,7 @@ Single entry point with natural language intent detection. Analyzes your request
 | Build (specific) | build X, create Y, implement Z | `/octo:develop` |
 | Build (vague) | build, create, make (no clear target) | `/octo:plan` |
 | Validate | validate, review, check, audit, verify | `/octo:review` |
+| Council | council, panel, advise, priority, implementation plan | `/octo:council` |
 | Debate | should, vs, or, compare, versus, which | `/octo:debate` |
 | Specify | spec, specify, requirements, nlspec | `/octo:spec` |
 | Parallel | parallel, decompose, work packages, multi-instance | `/octo:parallel` |
@@ -276,6 +278,10 @@ Configure which AI models are used across Claude Octopus workflows.
 /octo:model-config codex gpt-5.4            # Set Codex model
 /octo:model-config codex gpt-5.4  # Fast Spark model
 /octo:model-config gemini gemini-3.1-pro-preview  # Set Gemini model
+/octo:model-config providers                 # Show provider allowlist
+/octo:model-config disable codex --session   # Stop using Codex in this session
+/octo:model-config allow claude gemini --session  # Use only Claude + Gemini in this session
+/octo:model-config clear-allowlist --session # Restore default provider availability
 /octo:model-config cost-mode budget         # Use cheaper models
 /octo:model-config cost-mode premium        # Use best models
 /octo:model-config trace                    # Debug model resolution
@@ -292,7 +298,7 @@ Configure which AI models are used across Claude Octopus workflows.
 
 **Per-phase routing:** Different models can be configured for Discover, Define, Develop, and Deliver phases. Use `show phases` to view the current routing table.
 
-**Role-based defaults (v9.29+):** `architect`, `strategist`, and `security-reviewer` use Claude Opus 4.7; `code-reviewer` and `implementer` use GPT-5.4; `synthesizer` uses Claude Sonnet 4.6. See [ARCHITECTURE.md — Role → Model Mapping](../docs/ARCHITECTURE.md#role--model-mapping-v929) for rationale. Opt out with `OCTOPUS_LEGACY_ROLES=1`.
+**Role-based defaults (v9.29+):** `architect`, `strategist`, and `security-reviewer` use the current Claude Opus default (Opus 4.8 on Claude Code v2.1.154+, then 4.7/4.6 fallback); `code-reviewer` and `implementer` use GPT-5.4; `synthesizer` uses Claude Sonnet 4.6. See [ARCHITECTURE.md — Role → Model Mapping](../docs/ARCHITECTURE.md#role--model-mapping-v929) for rationale. Opt out with `OCTOPUS_LEGACY_ROLES=1`.
 
 ---
 
@@ -580,6 +586,61 @@ AI Debate Hub — structured four-way debates between Claude, Gemini, and Codex.
 - `octo debate X vs Y`
 - `run a debate about Z`
 - `I want gemini and codex to review X`
+
+---
+
+### `/octo:council`
+
+Persona-based multi-LLM council for advice, decision support, planning, and gated implementation.
+
+**Usage:**
+```
+/octo:council --depth quick --goal advice "Should we use Redis here?"
+/octo:council --goal decision --domain architecture "Should this service stay monolithic?"
+/octo:council --goal implement --implement plan-only "Refactor the auth flow"
+/octo:council --dry-run --members 7 --persona finance-analyst "Review this pricing strategy"
+```
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--goal advice\|decision\|plan\|implement\|review` | Council outcome |
+| `--domain auto\|architecture\|product\|security\|business\|research\|docs` | Persona recommendation domain |
+| `--style balanced\|adversarial\|implementation\|executive\|red-team` | Council discussion style |
+| `--depth quick\|standard\|deep` | Member count, rounds, and default budget |
+| `--members auto\|3\|5\|7` | Explicit council size; overrides depth member preset |
+| `--persona <name>[,<name>]` | Pin specific personas into the roster |
+| `--implement never\|after-approval\|plan-only` | Implementation gate behavior |
+| `--worktree auto\|on\|off` | Worktree preference for later implementation handoff |
+| `--benchmark auto\|on\|off` | BullshitBench snapshot routing signal |
+| `--providers auto\|claude,codex,gemini,opencode,openrouter` | Provider allowlist |
+| `--max-cost <usd>` | Hard USD cost cap |
+| `--simulate` | Explicit single-model simulation mode; never used implicitly |
+| `--single-model` | Alias for `--simulate` |
+| `--research-first` | Gather local/current research evidence before provider fanout |
+| `--corpus-mode off\|append\|require` | Whether findings, synthesis, and plans must be retained in a project corpus |
+| `--dry-run` | Preview roster, providers, quorum, and cost without provider fanout |
+| `--json` | Print `summary.json` to stdout |
+| `--output-dir <path>` | Relocate council artifacts |
+
+**What it does:**
+- Runs through the real Octopus runner by default; single-model simulation must be explicit and is recorded in `summary.json`
+- Selects a persona roster from the existing Octopus persona library
+- Scores seats with role fit, availability, provider diversity, cost, preference, and BullshitBench signal
+- Enforces provider diversity for standard/deep runs when another provider organization is available
+- Writes `research.md` before fanout when `--research-first` is set, injects it into council prompts, and records the artifact in `summary.json`
+- Writes a durable corpus entry when `--corpus-mode append|require` has a detected corpus workspace
+- Estimates cost before dispatch and before each additional phase, aborting before the next phase would exceed `--max-cost`
+- Runs independent advice, cross-critique, and deep-mode revision artifacts
+- Writes `config.json`, `responses/`, `critiques/`, `revisions/`, `synthesis.md`, and `summary.json`
+- Detects role-gated `VETO: critical` and structured critical-risk artifact declarations before implementation
+- Requires explicit Gate A/B approval before any implementation handoff
+
+**Natural language triggers:**
+- `octo council this architecture decision`
+- `ask a council whether we should build or buy`
+- `get a panel recommendation and implementation plan`
 
 ---
 

@@ -1,5 +1,192 @@
 # Changelog
 
+## [Unreleased]
+
+## [9.44.0] - 2026-06-10
+
+
+### Added
+
+- **Claude Fable 5 (Mythos-class) as opt-in premium Claude model.** `claude-fable-5` added to the model catalog and pricing tables ($10/$50 per MTok, 1M context, 128K output). Opt in by pinning `OCTOPUS_OPUS_MODEL=claude-fable-5`; never auto-selected because it costs 2x Opus 4.8 and Anthropic retains prompts/outputs up to 30 days for safety classifiers.
+- **GPT-5.5 and GPT-5.5 Pro in the model catalog** with June 2026 pricing ($5/$30 and $30/$180 per MTok).
+
+### Changed
+
+- **GPT-5.5 is the new Codex premium default.** Hard-coded resolver fallbacks, role-to-agent mappings (architect, reviewer, implementer), provider-routing defaults, and config templates move from `gpt-5.4` to `gpt-5.5`. `gpt-5.4` remains in the catalog and is still selectable.
+
+### Fixed
+
+- **Duplicate case arms made pricing/catalog entries unreachable.** `gpt-5.4-mini` was listed twice in `models.sh` and `cost.sh`; `cost.sh` also had a duplicate `o3` arm with a conflicting price and a stray duplicate `gpt-5.4` arm. Dead arms removed.
+- **`test-command-frontmatter.sh` always exited 0.** It tracked failures in its own counter but never propagated them, so three red assertions (doctor.md registration) shipped unnoticed. The test now exits 1 when any check fails.
+- **Native `/doctor` was shadowed again.** `.claude/commands/doctor.md` and its plugin.json registration (regressed in 6e0cb4a) are removed, restoring the v9.41.0 decision to keep diagnostics in `skills/skill-doctor` and `orchestrate.sh doctor`. OpenClaw registry rebuilt; README command count updated.
+
+## [9.43.0] - 2026-06-09
+
+
+### Fixed
+
+- **Providers dispatched from the plugin directory instead of the user's project** (bug report 260609). Command docs instructed `cd "${HOME}/.claude-octopus/plugin"` before `orchestrate.sh`, so `PROJECT_ROOT=$PWD` pointed at the plugin checkout and every provider sandbox (codex workdir, gemini workspace, copilot, claude subagents) could not read project files. Docs now invoke `orchestrate.sh` by absolute path from the project directory; `orchestrate.sh` falls back to `CLAUDE_PROJECT_DIR` (or warns) when invoked from inside the plugin install; `OCTOPUS_PROJECT_DIR` added as an explicit override; `probe-single` now cds to `PROJECT_ROOT` before dispatch.
+- **Bare provider names in `routing.roles`/`routing.phases` leaked as model names.** `"researcher": "perplexity"` produced `codex exec --model perplexity` (400 on ChatGPT accounts) and a gemini model 404 plus fallback retry. The model resolver now treats bare provider names as provider routes and falls through to the provider's own default model.
+- **Spawned `claude --print` subagents could not Read files** ("Read is blocked in the current permission mode"). Claude dispatch commands now pre-approve `Read,Glob,Grep`; implementer/developer roles additionally run with `--permission-mode acceptEdits` and `Edit,Write`.
+- **`probe-synthesis-*.md` never written when a straggler stream blocked the wait loop.** `display_rich_progress` now has a watchdog (`TIMEOUT` + `OCTOPUS_PROGRESS_GRACE`, default 120s grace) that terminates stragglers and proceeds to synthesis with completed results.
+- **Perplexity failures were silent** (empty result file, "(no output captured)", no error). Curl failures, timeouts, and empty or contentless responses now log errors and fail the agent; the empty-output placeholder names the provider and points at `doctor`.
+
+### Added
+
+- `OCTOPUS_GEMINI_INCLUDE_DIRS` — comma-separated directories appended to gemini dispatch as `--include-directories`, for prompts referencing files outside `PROJECT_ROOT` (e.g. `/tmp` staging dirs).
+- `tests/unit/test-orchestrate-cwd-routing.sh` — behavioral coverage for cwd resolution, role-routing model leaks, claude permission flags, gemini include dirs, and the docs cd-pattern regression.
+
+## [9.42.3] - 2026-06-03
+
+### Changed
+
+- Close Beads release sync issue
+
+## [9.42.2] - 2026-06-03
+
+### Changed
+
+- Sync Beads remote metadata
+
+## [9.42.1] - 2026-06-03
+
+
+### Fixed
+
+- Honor global `--dry-run` flags placed after the command name so dry-run `probe`/`council` invocations do not spawn live provider helpers.
+- Register packaged `/octo:doctor` and `/octo:preflight` command files and update release validation for the plugin namespace.
+- Clean up `CLAUDE_CODE_DISABLE_CRON` after parallel execution, matching the existing embrace workflow cleanup.
+
+### Changed
+
+- Refresh README, packaged README, marketplace, and adapter command-count strings from the current plugin manifest during release so command/skill/persona counts do not drift.
+- Update legacy root tests to resolve current directory-style skill entries and assert current probe synthesis behavior, marketplace parsing, and frontmatter stripping.
+
+## [9.42.0] - 2026-06-02
+
+
+### Added
+
+- Claude Code v2.1.154-2.1.157 feature flags: `SUPPORTS_OPUS_4_8`, `SUPPORTS_DYNAMIC_WORKFLOWS`, `SUPPORTS_LEAN_SYSTEM_PROMPT_DEFAULT`, `SUPPORTS_AGENT_SETTINGS_AGENT_FIELD`, `SUPPORTS_SKILLS_AUTO_PLUGIN_LOAD`, `SUPPORTS_ENTER_WORKTREE_SWITCH`, and `SUPPORTS_TOOL_DECISION_PARAMS_OTEL`.
+- Model catalog and pricing entries for `claude-opus-4.8` and `claude-opus-4.8-fast`.
+- `/octo:council` flags for explicit single-model simulation (`--simulate` / `--single-model`), research-first handling, and corpus retention mode.
+
+### Changed
+
+- Default `claude-opus` routing now prefers Opus 4.8 on Claude Code v2.1.154+, then falls back to Opus 4.7 and 4.6.
+- Opus effort policy now follows the 4.8 default: `high` for ordinary work, `xhigh` for complex implementation, deep review, and long-running asynchronous workflows. This phase-aware mapping applies to every supported Opus version (4.8, 4.7, and 4.6 on hosts that expose effort control), replacing the previous behavior of forcing `xhigh` on all phases; research and scoping phases now run at `high` instead of `xhigh`.
+- Behavioral test coverage for the routing change: `tests/unit/test-opus-48-routing.sh` asserts `opus_default_model` version preference and override, the `claude-opus-fast` wire flag, and the phase-to-effort mapping (the existing detection test only checked flag wiring).
+- Fast Opus guidance and pricing now distinguish Opus 4.8 fast mode (2x standard, $10/$50 MTok) from legacy Opus 4.6 fast mode (6x standard, $30/$150 MTok).
+- `/octo:council` now requires the real runner by default, records execution/research/corpus mode in artifacts, writes research-first context before fanout, appends durable corpus entries when requested, and reserves single-model simulation for explicit requests only.
+- `/octo:doctor` now surfaces Opus 4.8, dynamic workflows, `.claude/skills` plugin auto-load, and EnterWorktree switching when the installed Claude Code version supports them.
+- Documentation now routes huge single-Claude migrations toward native Claude Code dynamic workflows and keeps Octopus positioned for multi-provider disagreement, councils, adversarial review, and validation.
+
+## [9.41.2] - 2026-05-28
+
+### Fixed
+
+- Add `--trust --output-format text` to cursor-agent smoke test so provider health checks pass in untrusted workspaces, aligning the smoke path with the dispatch path in `cursor-agent.sh` (#427, closes #426).
+
+## [9.41.1] - 2026-05-27
+
+### Fixed
+
+- Add the Gemini model flag to debate skill calls so selected Gemini models are honored (#422).
+
+### Changed
+
+- Include provider CLI version-floor enforcement and onboarding preflight/setup helpers merged after v9.41.0 (#419, #420).
+
+## [9.41.0] - 2026-05-24
+
+### Added
+
+- Promote `/octo:council` to a first-class workflow in plugin metadata and README docs.
+
+### Fixed
+
+- Stop registering `doctor` as an Octopus slash command so Claude Code's native `/doctor` remains accessible.
+
+## [9.40.3] - 2026-05-24
+
+### Changed
+
+- Extract `/octo:council` benchmark routing helpers into `scripts/lib/benchmark-routing.sh` and load them through the orchestrator and direct council library usage.
+- Score council role fit from `agents/config.yaml` capability and expertise tags before falling back to persona-family heuristics.
+- Document the v1 MCP/OpenClaw decision as local adapter passthrough rather than a hosted council service.
+
+### Fixed
+
+- Surface provider-diversity and chair-fallback council warnings in CLI output, with regression coverage.
+- Keep fixture-mode critique dispatch consistent with `OCTOPUS_COUNCIL_FAIL_PERSONAS`, with regression coverage.
+
+## [9.40.2] - 2026-05-23
+
+### Fixed
+
+- Generate `/octo:council` synthesis through chair dispatch using response, critique, and revision artifacts instead of writing a static placeholder synthesis.
+- Re-check `/octo:council` budget caps before critique, revision, synthesis, and implementation planning so a run stops before the next phase would exceed `--max-cost`.
+- Normalize the current BullshitBench v2 upstream CSV schema in `scripts/refresh-benchmarks.sh` and refresh the checked-in snapshot to 158 model/reasoning rows.
+- Tighten council veto scanning so incidental `critical-veto` text does not trigger a critical veto.
+- Add regression coverage for directory-based skill entries in `/octo:doctor`.
+
+## [9.40.1] - 2026-05-23
+
+### Fixed
+
+- Fix `/octo:doctor` skill existence checks for directory-based skills so v9.39+ installs no longer report false missing-skill failures (#414, #415).
+
+## [9.40.0] - 2026-05-22
+
+### Added
+
+- Add `/octo:council` as a configurable multi-LLM council command with command/skill registration, dry-run preflight artifacts, provider status, benchmark metadata, persona-aware roster selection, provider diversity, budget validation, quorum tracking, critical veto handling, and gated implementation handoff metadata.
+- Add checked-in BullshitBench v2 snapshot data and a refresh script for benchmark-aware council routing.
+
+## [9.39.1] - 2026-05-22
+
+### Fixed
+
+- Honor `--timeout` for synthesis stages instead of hardcoding 180 seconds, so dense synthesis runs respect the caller's configured timeout (#408, #409).
+- Let `OCTOPUS_AGENT_TIMEOUT` override dispatch timeouts unconditionally and treat oversize provider rejections as skipped providers instead of aborting the whole dispatch (#410, #411).
+
+## [9.39.0] - 2026-05-21
+
+### Added
+
+- Add Codex marketplace icon metadata and package the SVG asset for marketplace browsers (#385).
+- Add session-scoped provider availability controls to `/octo:model-config` so users can disable exhausted providers such as Codex without uninstalling them (#386).
+
+### Fixed
+
+- Surface the first provider stderr line in orchestrator logs when a provider command fails, while still preserving the full transcript in the result file (#404).
+- Align OpenCode model catalog metadata with the current `opencode/...` namespace (#404).
+- Replace low-risk `ls`/`read` shellcheck findings in `orchestrate.sh` with safer equivalents (#404).
+
+## [9.38.1] - 2026-05-21
+
+Patch release covering the issue/PR triage queue after v9.38.0.
+
+### Added
+
+- Add Mistral Vibe as a first-class provider, including setup/doctor detection, dispatch support, circuit-breaker visibility, and prompt validation (#402).
+
+### Fixed
+
+- flow-develop: E2E verification agent now receives the original task description verbatim at prompt-construction time instead of a static generic reference (#398, closes #389)
+- probe: compact synthesis fallback — bounded context and sanitized failure markers in synthesis (#396)
+- ink: compact delivery context — bounded delivery bundle, sanitized upstream failure markers (#394)
+- tangle: fall back to direct execution when decomposition produces no parseable subtasks (#391)
+- tangle: preserve original task context in subtasks, require explicit disjoint write scopes, and accept root-level files such as `Makefile` (#390).
+- tangle: validate explicit file coverage with exact file-token matching and require worktree evidence for implementation tasks (#393).
+- embrace: stop on missing phase outputs, enforce requested debate gates, and reuse centralized cleanup for YAML runtime completion (#392).
+- codex: document current non-interactive `codex exec` usage and include recovered stderr transcripts in result files (#387).
+- skills: support directory-format Claude skills across marketplace sync, smoke tests, OpenClaw, Codex generation, release validation, and agent skill loading (#397, closes #395).
+- review publishing: respect explicit PR targets before branch fallback so review comments land on the intended PR (#406, closes #405).
+- provider defaults: cover OpenCode namespace defaults in regression tests (#403).
+
+---
+
 ## [9.38.0] - 2026-05-15
 
 ### Changed
@@ -19,10 +206,6 @@
 
 - Prevent the stable `~/.claude-octopus/plugin` self-heal path from recreating the plugin symlink as a self-referential loop (#371).
 - Update release validation to understand directory-based plugin skill registrations.
-
----
-
-## [Unreleased]
 
 ---
 
