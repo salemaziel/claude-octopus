@@ -1,0 +1,643 @@
+# Instincts generated from https://github.com/salemaziel/claude-octopus
+# Generated: 2026-05-16T23:04:45.204Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: claude-octopus-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Commit Length
+
+## Action
+
+Write moderate-length commit messages (~62 characters)
+
+## Evidence
+
+- Average commit message length: 62 chars
+- Based on 100 commits
+
+---
+id: claude-octopus-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Naming Files
+
+## Action
+
+Use kebab-case naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: kebab-case
+
+---
+id: claude-octopus-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: claude-octopus-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: claude-octopus-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: claude-octopus-test-naming
+trigger: "when creating a test file"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Test Naming
+
+## Action
+
+Name test files using the pattern: *.test.ts
+
+## Evidence
+
+- File pattern: *.test.ts
+- Consistent across test files
+
+---
+id: claude-octopus-test-types
+trigger: "when planning tests for a feature"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Test Types
+
+## Action
+
+Write unit, integration tests to match project standards
+
+## Evidence
+
+- Test types detected: unit, integration
+- Coverage config: yes
+
+---
+id: claude-octopus-workflow-feature-development
+trigger: "when implementing a new feature"
+confidence: 0.8
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Workflow Feature Development
+
+## Action
+
+Follow the feature-development workflow:
+1. Add feature implementation
+2. Add tests for feature
+3. Update documentation
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~6x per month
+- Files: **/*.test.*, **/api/**
+
+---
+id: claude-octopus-workflow-refactoring
+trigger: "when refactoring code"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Workflow Refactoring
+
+## Action
+
+Follow the refactoring workflow:
+1. Ensure tests pass before refactor
+2. Refactor code structure
+3. Verify tests still pass
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: src/**/*
+
+---
+id: claude-octopus-workflow-provider-integration-and-hardening
+trigger: "when doing provider integration and hardening"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Workflow Provider Integration And Hardening
+
+## Action
+
+Follow the provider-integration-and-hardening workflow:
+1. Implement new provider module in scripts/lib/<provider>.sh
+2. Wire provider into scripts/lib/dispatch.sh, scripts/lib/providers.sh, scripts/lib/doctor.sh, scripts/lib/model-resolver.sh, scripts/lib/preflight.sh, scripts/lib/smoke.sh, scripts/lib/workflows.sh, and scripts/orchestrate.sh
+3. Update helpers (e.g., scripts/helpers/build-fleet.sh, scripts/helpers/check-providers.sh, scripts/helpers/octo-model-config.sh)
+4. Update scripts/install-deps.sh if needed
+5. Add/modify provider detection logic (e.g., auth file grep, binary checks)
+6. Add or update tests/unit/test-<provider>-provider.sh
+7. Address follow-up review findings by tightening detection logic or fixing edge cases
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: scripts/lib/<provider>.sh, scripts/lib/dispatch.sh, scripts/lib/providers.sh
+
+---
+id: claude-octopus-workflow-release-version-bundle
+trigger: "when doing release version bundle"
+confidence: 0.7
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Workflow Release Version Bundle
+
+## Action
+
+Follow the release-version-bundle workflow:
+1. Update CHANGELOG.md with release notes
+2. Update README.md for version or install instructions
+3. Update package.json version
+4. Update .claude-plugin/marketplace.json and .claude-plugin/plugin.json
+5. Commit with 'release: vX.Y.Z' or 'chore: release vX.Y.Z' message
+6. Merge release branch or PR into main
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~4x per month
+- Files: CHANGELOG.md, README.md, package.json
+
+---
+id: claude-octopus-workflow-test-suite-migration-or-hardening
+trigger: "when doing test suite migration or hardening"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Workflow Test Suite Migration Or Hardening
+
+## Action
+
+Follow the test-suite-migration-or-hardening workflow:
+1. Bulk edit test files to source new helpers or frameworks (e.g., test-framework.sh)
+2. Replace assertion helpers or pipelines for compatibility (e.g., echo|grep to herestrings)
+3. Fix or update test logic for new code paths or platform quirks (e.g., BSD grep, SIGPIPE)
+4. Add new unit or regression tests for recent bugs
+5. Update test framework or helper scripts as needed
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: tests/integration/*.sh, tests/smoke/*.sh, tests/test-*.sh
+
+---
+id: claude-octopus-workflow-hook-hardening-and-error-trapping
+trigger: "when doing hook hardening and error trapping"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Workflow Hook Hardening And Error Trapping
+
+## Action
+
+Follow the hook-hardening-and-error-trapping workflow:
+1. Add or update EXIT trap logic to each hook script (e.g., hooks/*.sh)
+2. Guard pipelines (e.g., grep, ls) with '|| true' to prevent non-zero exits under set -e/pipefail
+3. Update hook logic for compatibility with different bash versions (e.g., macOS bash 3.2)
+4. Add or update regression/unit tests to enforce error-trap presence and correct behavior
+5. Fix any discovered silent-fail paths and re-run tests
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: hooks/*.sh, tests/unit/test-hook-err-traps.sh
+
+---
+id: claude-octopus-workflow-command-or-skill-docs-and-logic-sync
+trigger: "when doing command or skill docs and logic sync"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/salemaziel/claude-octopus
+---
+
+# Claude Octopus Workflow Command Or Skill Docs And Logic Sync
+
+## Action
+
+Follow the command-or-skill-docs-and-logic-sync workflow:
+1. Edit .claude/commands/*.md and/or commands/octo-*.md to update banners, usage, or logic
+2. Edit corresponding implementation scripts or logic to match documentation (e.g., orchestrate.sh, direct dispatch fixes)
+3. Update or add related tests (unit or smoke) to enforce new doc/logic contract
+4. Address review feedback for clarity or correctness
+5. Merge changes after verification
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: .claude/commands/*.md, commands/octo-*.md, scripts/orchestrate.sh
+
+---
+id: claude-octopus-instinct-file-naming
+trigger: "When creating a new file"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct File Naming
+
+## Action
+
+Name the file using kebab-case (e.g., my-feature.ts)
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.files
+- Observed in repository file names
+
+---
+id: claude-octopus-instinct-function-naming
+trigger: "When defining a new function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Function Naming
+
+## Action
+
+Use camelCase for function names (e.g., fetchData)
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.functions
+- TypeScript code style conventions
+
+---
+id: claude-octopus-instinct-class-naming
+trigger: "When defining a new class"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Class Naming
+
+## Action
+
+Use PascalCase for class names (e.g., DataFetcher)
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.classes
+- TypeScript code style conventions
+
+---
+id: claude-octopus-instinct-constant-naming
+trigger: "When declaring a constant"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Constant Naming
+
+## Action
+
+Use SCREAMING_SNAKE_CASE for constant names (e.g., MAX_RETRIES)
+
+## Evidence
+
+- Pattern in codeStyle.namingConventions.constants
+
+---
+id: claude-octopus-instinct-import-style
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Import Style
+
+## Action
+
+Use relative import paths (e.g., import { X } from './module')
+
+## Evidence
+
+- Pattern in codeStyle.importStyle
+
+---
+id: claude-octopus-instinct-export-style
+trigger: "When exporting from a module"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Export Style
+
+## Action
+
+Use named exports (e.g., export { MyFunc })
+
+## Evidence
+
+- Pattern in codeStyle.exportStyle
+
+---
+id: claude-octopus-instinct-test-file-pattern
+trigger: "When adding a new test file"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Test File Pattern
+
+## Action
+
+Name the test file with a .test.ts suffix (e.g., my-feature.test.ts)
+
+## Evidence
+
+- Pattern in testing.filePattern
+- Observed in tests/unit/test-*.sh
+
+---
+id: claude-octopus-instinct-test-types
+trigger: "When writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Test Types
+
+## Action
+
+Include both unit and integration tests as appropriate
+
+## Evidence
+
+- Pattern in testing.testTypes
+- Presence of tests/unit and tests/integration folders
+
+---
+id: claude-octopus-instinct-test-coverage-config
+trigger: "When configuring tests"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Test Coverage Config
+
+## Action
+
+Ensure test coverage is configured and measured
+
+## Evidence
+
+- testing.coverageConfig is true
+
+---
+id: claude-octopus-instinct-git-commit-prefix
+trigger: "When writing a commit message"
+confidence: 0.95
+domain: git
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Git Commit Prefix
+
+## Action
+
+Prefix the commit message with a type (fix, feat, chore, test, release, docs) followed by a colon (e.g., fix: ...)
+
+## Evidence
+
+- Pattern in commits.prefixes
+- Seen in commit: fix: QA hardening — macOS compat, dead code removal, persona hooks cleanup (#304)
+
+---
+id: claude-octopus-instinct-git-release-commit
+trigger: "When cutting a new release"
+confidence: 0.95
+domain: git
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Git Release Commit
+
+## Action
+
+Use a commit message starting with 'release: vX.Y.Z' or 'chore: release vX.Y.Z'
+
+## Evidence
+
+- Seen in commit: release: v9.24.0 — bug fixes (#288 #289 cursor-agent hooks.json test-reliability) (#290)
+- release-version-bundle workflow
+
+---
+id: claude-octopus-instinct-provider-integration
+trigger: "When adding a new model/provider or updating provider detection/auth logic"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Provider Integration
+
+## Action
+
+Implement new provider module, wire into all relevant scripts, update helpers, detection logic, and add/modify provider tests
+
+## Evidence
+
+- provider-integration-and-hardening workflow
+- Pattern in scripts/lib/<provider>.sh and related files
+
+---
+id: claude-octopus-instinct-release-bundle
+trigger: "When preparing a new release after a batch of changes"
+confidence: 0.99
+domain: workflow
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Release Bundle
+
+## Action
+
+Update CHANGELOG.md, README.md, package.json version, plugin metadata, and commit with release message
+
+## Evidence
+
+- release-version-bundle workflow
+- Seen in commits with release: vX.Y.Z
+
+---
+id: claude-octopus-instinct-test-suite-migration
+trigger: "When upgrading test infrastructure or fixing test flakiness"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Test Suite Migration
+
+## Action
+
+Bulk edit test files to source new helpers/frameworks, update assertion helpers for compatibility, fix test logic for new code paths or platform quirks, and add regression tests
+
+## Evidence
+
+- test-suite-migration-or-hardening workflow
+- Pattern in tests/unit/test-*.sh
+
+---
+id: claude-octopus-instinct-hook-hardening
+trigger: "When making plugin hooks robust against silent errors and improving error reporting"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Hook Hardening
+
+## Action
+
+Add or update EXIT trap logic, guard pipelines with '|| true', ensure compatibility with different bash versions, and add regression tests for error traps
+
+## Evidence
+
+- hook-hardening-and-error-trapping workflow
+- Pattern in hooks/*.sh and tests/unit/test-hook-err-traps.sh
+
+---
+id: claude-octopus-instinct-command-docs-sync
+trigger: "When fixing or clarifying command/skill documentation or ensuring implementation matches documentation"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: salemaziel/claude-octopus
+---
+
+# Claude Octopus Instinct Command Docs Sync
+
+## Action
+
+Edit command/skill markdown and implementation scripts to match, update/add related tests, and address review feedback
+
+## Evidence
+
+- command-or-skill-docs-and-logic-sync workflow
+- Pattern in .claude/commands/*.md, scripts/orchestrate.sh
+
